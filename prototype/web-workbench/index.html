@@ -56,12 +56,22 @@
       </div>
 
       <div class="transport" aria-label="播放控制">
-        <button id="play-button" class="primary" type="button" disabled>播放</button>
+        <button id="play-button" class="primary" type="button" title="快捷键：空格" disabled>播放</button>
         <button id="stop-button" type="button" disabled>停止</button>
         <output id="play-time">00:00.000 / 00:00.000</output>
         <label class="zoom-control" for="zoom-range">缩放
           <input id="zoom-range" type="range" min="8" max="48" step="4" value="16">
         </label>
+        <label class="compact-control" for="snap-grid">吸附
+          <select id="snap-grid">
+            <option value="beat">1 拍</option>
+            <option value="half-beat" selected>1/2 拍</option>
+            <option value="quarter-beat">1/4 拍</option>
+            <option value="none">关闭</option>
+          </select>
+        </label>
+        <label class="inline-check"><input id="continuous-lyrics" type="checkbox" checked> 连续歌词区不留小缝</label>
+        <span class="shortcut-hint"><kbd>Space</kbd> 播放/暂停</span>
         <span id="audio-name" class="muted">尚未关联 WAV</span>
       </div>
 
@@ -93,7 +103,10 @@
                 <div class="track-label">伴奏总览</div>
                 <div id="waveform-lane" class="track-lane waveform-lane" tabindex="0" aria-label="伴奏波形，可拖拽建立选区">
                   <canvas id="timeline-canvas"></canvas>
-                  <div id="selection-overlay" class="selection-overlay" hidden></div>
+                  <div id="selection-overlay" class="selection-overlay" hidden>
+                    <button id="selection-start-handle" class="selection-handle start" type="button" aria-label="调整选区开始位置"></button>
+                    <button id="selection-end-handle" class="selection-handle end" type="button" aria-label="调整选区结束位置"></button>
+                  </div>
                   <div id="playhead" class="playhead" hidden></div>
                 </div>
               </div>

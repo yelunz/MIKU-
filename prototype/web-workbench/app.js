@@ -18,8 +18,11 @@
     selectedChordKey: null,
     selectedLyricId: null,
     zoom: 16,
+    snapMode: "half-beat",
+    continuousLyrics: true,
     layers: { waveform: true, energy: true, beats: true, sections: true, chords: true },
     dragging: null,
+    handleDragging: null,
     nextLyricId: 1,
   };
 
@@ -38,6 +41,8 @@
     playTime: byId("play-time"),
     audioName: byId("audio-name"),
     zoomRange: byId("zoom-range"),
+    snapGrid: byId("snap-grid"),
+    continuousLyrics: byId("continuous-lyrics"),
     timelineScroll: byId("timeline-scroll"),
     timelineContent: byId("timeline-content"),
     ruler: byId("ruler"),
@@ -46,6 +51,8 @@
     waveformLane: byId("waveform-lane"),
     canvas: byId("timeline-canvas"),
     selectionOverlay: byId("selection-overlay"),
+    selectionStartHandle: byId("selection-start-handle"),
+    selectionEndHandle: byId("selection-end-handle"),
     playhead: byId("playhead"),
     lyricsLane: byId("lyrics-lane"),
     lyricsEmpty: byId("lyrics-empty"),
@@ -84,6 +91,30 @@
     const minutes = Math.floor(safe / 60);
     const remainder = safe - minutes * 60;
     return `${String(minutes).padStart(2, "0")}:${remainder.toFixed(3).padStart(6, "0")}`;
+  }
+
+  function topTempoCandidate() {
+    return state.analysis && state.analysis.analysis.tempo.candidates[0] || null;
+  }
+
+  function snapIntervalSeconds() {
+    const tempo = topTempoCandidate();
+    if (!tempo || state.snapMode === "none") return 0;
+    const beat = 60 / finiteNumber(tempo.bpm, 120);
+    if (state.snapMode === "quarter-beat") return beat / 4;
+    if (state.snapMode === "half-beat") return beat / 2;
+    return beat;
+  }
+
+  function snapTime(seconds, bypass = false) {
+    const interval = snapIntervalSeconds();
+    if (!interval || bypass) return clamp(seconds, 0, state.duration);
+    if (seconds <= interval / 2) return 0;
+    if (state.duration - seconds <= interval / 2) return state.duration;
+    const tempo = topTempoCandidate();
+    const origin = finiteNumber(tempo.first_beat_seconds);
+    const snapped = origin + Math.round((seconds - origin) / interval) * interval;
+    return clamp(Number(snapped.toFixed(6)), 0, state.duration);
   }
 
   function validateAnalysis(candidate) {
@@ -323,13 +354,30 @@
       elements.lyricsEmpty.hidden = false;
       return;
     }
-    state.lyrics.slice().sort((a, b) => a.start - b.start).forEach(region => {
+    const sortedRegions = state.lyrics.slice().sort((a, b) => a.start - b.start);
+    const appendUnassigned = (start, end) => {
+      if (end - start <= 1e-6) return;
+      const gap = document.createElement("span");
+      gap.className = "timeline-block rest-block";
+      gap.textContent = "未分配 / 休止";
+      gap.title = `${start.toFixed(3)}–${end.toFixed(3)} 秒 · 明确留白，不是渲染漏缝`;
+      gap.style.left = percentAt(start);
+      gap.style.right = percentAt(state.duration - end);
+      elements.lyricsLane.appendChild(gap);
+    };
+    let cursor = 0;
+    sortedRegions.forEach(region => {
+      appendUnassigned(cursor, region.start);
       const language = region.language === "ja" ? "日" : "中";
       const block = makeBlock("lyric-block", `${language} · ${region.text}`, region.start, region.end, `${region.start.toFixed(3)}–${region.end.toFixed(3)} 秒 · 点击编辑`);
+      block.style.removeProperty("width");
+      block.style.right = percentAt(state.duration - region.end);
       if (state.selectedLyricId === region.id) block.classList.add("selected");
       block.addEventListener("click", () => editLyric(region.id));
       elements.lyricsLane.appendChild(block);
+      cursor = Math.max(cursor, region.end);
     });
+    appendUnassigned(cursor, state.duration);
   }
 
   function editLyric(id) {
@@ -353,10 +401,14 @@
     renderLyrics();
   }
 
-  function setSelection(start, end, announce = true) {
+  function setSelection(start, end, announce = true, useSnap = false, bypassSnap = false) {
     if (!state.analysis) return;
     let safeStart = clamp(finiteNumber(start), 0, state.duration);
     let safeEnd = clamp(finiteNumber(end), 0, state.duration);
+    if (useSnap) {
+      safeStart = snapTime(safeStart, bypassSnap);
+      safeEnd = snapTime(safeEnd, bypassSnap);
+    }
     if (safeStart > safeEnd) [safeStart, safeEnd] = [safeEnd, safeStart];
     state.selection = { start: safeStart, end: safeEnd };
     elements.selectionStart.value = safeStart.toFixed(3);
@@ -375,6 +427,8 @@
     elements.selectionOverlay.hidden = false;
     elements.selectionOverlay.style.left = percentAt(start);
     elements.selectionOverlay.style.width = percentAt(end - start);
+    elements.selectionStartHandle.title = `开始 ${start.toFixed(3)} 秒；拖动或方向键调整`;
+    elements.selectionEndHandle.title = `结束 ${end.toFixed(3)} 秒；拖动或方向键调整`;
     const chordLabels = (state.analysis.analysis.chords.windows || [])
       .filter(window => finiteNumber(window.end_seconds) > start && finiteNumber(window.start_seconds) < end)
       .map(window => effectiveChordLabel(window));
@@ -567,7 +621,7 @@
   }
 
   function saveLyricRegion() {
-    const { start, end } = state.selection;
+    let { start, end } = state.selection;
     const text = elements.lyricText.value.trim();
     const language = elements.lyricLanguage.value;
     if (!(end > start)) {
@@ -582,9 +636,41 @@
       setStatus("首版只支持中文和日文歌词。", "error");
       return;
     }
-    if (state.selectedLyricId) {
-      const existing = state.lyrics.find(region => region.id === state.selectedLyricId);
-      if (existing) Object.assign(existing, { start, end, language, text });
+    const existing = state.selectedLyricId ? state.lyrics.find(region => region.id === state.selectedLyricId) : null;
+    const otherRegions = state.lyrics.filter(region => !existing || region.id !== existing.id).sort((a, b) => a.start - b.start);
+    const tolerance = Math.max(0.08, snapIntervalSeconds() * 1.05);
+    let linkedPrevious = null;
+    let linkedNext = null;
+    if (existing && state.continuousLyrics) {
+      linkedPrevious = otherRegions.filter(region => region.end <= existing.start + tolerance).at(-1) || null;
+      linkedNext = otherRegions.find(region => region.start >= existing.end - tolerance) || null;
+      if (linkedPrevious && Math.abs(linkedPrevious.end - existing.start) > tolerance) linkedPrevious = null;
+      if (linkedNext && Math.abs(linkedNext.start - existing.end) > tolerance) linkedNext = null;
+    } else if (state.continuousLyrics) {
+      const previous = otherRegions.filter(region => region.end <= start + tolerance).at(-1) || null;
+      const next = otherRegions.find(region => region.start >= end - tolerance) || null;
+      if (previous && Math.abs(previous.end - start) <= tolerance) start = previous.end;
+      if (next && Math.abs(next.start - end) <= tolerance) end = next.start;
+    }
+    if (!(end > start)) {
+      setStatus("吸附后的歌词区域没有有效长度，请调整边界或关闭吸附。", "error");
+      return;
+    }
+    if (linkedPrevious && start <= linkedPrevious.start || linkedNext && end >= linkedNext.end) {
+      setStatus("边界调整会吞掉相邻歌词区域，请缩小移动范围。", "error");
+      return;
+    }
+    const ignoredIds = new Set([existing && existing.id, linkedPrevious && linkedPrevious.id, linkedNext && linkedNext.id].filter(Boolean));
+    const overlap = state.lyrics.find(region => !ignoredIds.has(region.id) && start < region.end - 1e-6 && end > region.start + 1e-6);
+    if (overlap) {
+      setStatus("歌词区域与已有区域重叠；请调整边界，或编辑已有区域。", "error");
+      return;
+    }
+    setSelection(start, end, false);
+    if (existing) {
+      Object.assign(existing, { start, end, language, text });
+      if (linkedPrevious) linkedPrevious.end = start;
+      if (linkedNext) linkedNext.start = end;
       setStatus("已更新歌词区域。", "success");
     } else {
       let identifier;
@@ -640,6 +726,7 @@
         selection: state.selection,
         lyrics: state.lyrics,
         chord_overrides: state.chordOverrides,
+        preferences: { snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics },
       },
     };
     bridge.downloadJson("miku-workbench-project.json", project);
@@ -667,6 +754,10 @@
       if (match) maximumLyricNumber = Math.max(maximumLyricNumber, Number(match[1]));
       return { id, start, end, language, text: String(region.text).trim() };
     }) : [];
+    const orderedLyrics = lyrics.slice().sort((left, right) => left.start - right.start);
+    for (let index = 1; index < orderedLyrics.length; index += 1) {
+      if (orderedLyrics[index].start < orderedLyrics[index - 1].end - 1e-6) throw new Error("同一主唱轨上的歌词区域不能重叠；和声请使用独立声部轨。");
+    }
     const rawOverrides = editing.chord_overrides === undefined ? {} : editing.chord_overrides;
     if (!rawOverrides || typeof rawOverrides !== "object" || Array.isArray(rawOverrides)) throw new Error("和弦修正层必须是对象。");
     const validChordKeys = new Set(analysis.analysis.chords.windows.map(window => chordKey(window)));
@@ -685,6 +776,11 @@
     state.lyrics = lyrics;
     state.chordOverrides = overrides;
     state.nextLyricId = Math.max(1, maximumLyricNumber + 1);
+    const preferences = editing.preferences && typeof editing.preferences === "object" ? editing.preferences : {};
+    if (new Set(["beat", "half-beat", "quarter-beat", "none"]).has(preferences.snap_mode)) state.snapMode = preferences.snap_mode;
+    state.continuousLyrics = preferences.continuous_lyrics !== false;
+    elements.snapGrid.value = state.snapMode;
+    elements.continuousLyrics.checked = state.continuousLyrics;
     const selection = editing.selection || {};
     setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
     elements.audioName.textContent = candidate.source_audio && candidate.source_audio.local_file_name ? `${candidate.source_audio.local_file_name}（需要重新关联）` : "需要重新关联 WAV";
@@ -725,15 +821,21 @@
   });
   elements.exportProjectButton.addEventListener("click", exportProject);
 
-  elements.playButton.addEventListener("click", async () => {
+  async function togglePlayback() {
     if (!state.audioUrl) return;
     try {
-      if (elements.audio.paused) await elements.audio.play(); else elements.audio.pause();
+      if (elements.audio.paused) {
+        if (elements.audio.ended || elements.audio.currentTime >= state.duration - 0.01) {
+          elements.audio.currentTime = state.selection.end > state.selection.start ? state.selection.start : 0;
+        }
+        await elements.audio.play();
+      } else elements.audio.pause();
       updateTransport();
     } catch (error) {
       setStatus(`音频播放失败：${error.message}`, "error");
     }
-  });
+  }
+  elements.playButton.addEventListener("click", togglePlayback);
   elements.stopButton.addEventListener("click", () => {
     elements.audio.pause();
     elements.audio.currentTime = state.selection.end > state.selection.start ? state.selection.start : 0;
@@ -752,7 +854,7 @@
 
   elements.waveformLane.addEventListener("pointerdown", event => {
     if (!state.analysis || event.button !== 0) return;
-    const anchor = timeFromPointer(event);
+    const anchor = snapTime(timeFromPointer(event), event.altKey);
     state.dragging = { anchor, clientX: event.clientX, moved: false, previous: { ...state.selection } };
     elements.waveformLane.setPointerCapture(event.pointerId);
   });
@@ -760,12 +862,12 @@
     if (!state.dragging) return;
     if (Math.abs(event.clientX - state.dragging.clientX) < 3 && !state.dragging.moved) return;
     state.dragging.moved = true;
-    setSelection(state.dragging.anchor, timeFromPointer(event), false);
+    setSelection(state.dragging.anchor, timeFromPointer(event), false, true, event.altKey);
   });
   elements.waveformLane.addEventListener("pointerup", event => {
     if (!state.dragging) return;
     if (state.dragging.moved) {
-      setSelection(state.dragging.anchor, timeFromPointer(event));
+      setSelection(state.dragging.anchor, timeFromPointer(event), true, true, event.altKey);
     } else {
       const targetTime = timeFromPointer(event);
       setSelection(state.dragging.previous.start, state.dragging.previous.end, false);
@@ -780,13 +882,82 @@
     state.dragging = null;
     elements.waveformLane.releasePointerCapture(event.pointerId);
   });
+  elements.waveformLane.addEventListener("pointercancel", () => {
+    if (!state.dragging) return;
+    const previous = state.dragging.previous;
+    state.dragging = null;
+    setSelection(previous.start, previous.end, false);
+    setStatus("系统取消了框选，已恢复原选区。", "success");
+  });
   elements.waveformLane.addEventListener("keydown", event => {
     if (!state.analysis || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
-    const delta = event.key === "ArrowRight" ? 0.1 : -0.1;
-    const length = Math.max(0.5, state.selection.end - state.selection.start);
-    const start = clamp(state.selection.start + delta, 0, state.duration - length);
-    setSelection(start, start + length);
+    const delta = (event.key === "ArrowRight" ? 1 : -1) * (snapIntervalSeconds() || 0.1);
+    const length = state.selection.end > state.selection.start ? state.selection.end - state.selection.start : (snapIntervalSeconds() || 0.5);
+    if (event.shiftKey) {
+      setSelection(state.selection.start, clamp(state.selection.end + delta, state.selection.start + 0.001, state.duration), true, true);
+    } else {
+      const start = clamp(state.selection.start + delta, 0, state.duration - length);
+      setSelection(start, start + length, true, true);
+    }
+  });
+
+  function beginHandleDrag(event, edge) {
+    event.preventDefault();
+    event.stopPropagation();
+    state.handleDragging = { edge, previous: { ...state.selection } };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveHandle(event) {
+    if (!state.handleDragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const time = snapTime(timeFromPointer(event), event.altKey);
+    const minimum = event.altKey ? 0.001 : (snapIntervalSeconds() || 0.001);
+    if (state.handleDragging.edge === "start") {
+      setSelection(Math.min(time, state.selection.end - minimum), state.selection.end, false, true, event.altKey);
+    } else {
+      setSelection(state.selection.start, Math.max(time, state.selection.start + minimum), false, true, event.altKey);
+    }
+  }
+
+  function endHandleDrag(event) {
+    if (!state.handleDragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.handleDragging = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setStatus(`选区边界已调整为 ${state.selection.start.toFixed(3)}–${state.selection.end.toFixed(3)} 秒。`, "success");
+  }
+
+  function cancelHandleDrag() {
+    if (!state.handleDragging) return;
+    const previous = state.handleDragging.previous;
+    state.handleDragging = null;
+    setSelection(previous.start, previous.end, false);
+    setStatus("系统取消了边缘调整，已恢复原选区。", "success");
+  }
+
+  function nudgeHandle(event, edge) {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const delta = (event.key === "ArrowRight" ? 1 : -1) * (snapIntervalSeconds() || 0.01);
+    const minimum = event.altKey ? 0.001 : (snapIntervalSeconds() || 0.001);
+    if (edge === "start") setSelection(clamp(state.selection.start + delta, 0, state.selection.end - minimum), state.selection.end, true, true);
+    else setSelection(state.selection.start, clamp(state.selection.end + delta, state.selection.start + minimum, state.duration), true, true);
+  }
+
+  [
+    [elements.selectionStartHandle, "start"],
+    [elements.selectionEndHandle, "end"],
+  ].forEach(([handle, edge]) => {
+    handle.addEventListener("pointerdown", event => beginHandleDrag(event, edge));
+    handle.addEventListener("pointermove", moveHandle);
+    handle.addEventListener("pointerup", endHandleDrag);
+    handle.addEventListener("pointercancel", cancelHandleDrag);
+    handle.addEventListener("keydown", event => nudgeHandle(event, edge));
   });
 
   function applyNumericSelection() {
@@ -814,11 +985,43 @@
     state.zoom = Number(event.target.value);
     renderAll();
   });
+  elements.snapGrid.addEventListener("change", event => {
+    state.snapMode = event.target.value;
+    if (state.selection.end > state.selection.start) setSelection(state.selection.start, state.selection.end, true, true);
+    else setStatus(`吸附已切换为：${event.target.options[event.target.selectedIndex].textContent}。`, "success");
+  });
+  elements.continuousLyrics.addEventListener("change", event => {
+    state.continuousLyrics = event.target.checked;
+    setStatus(state.continuousLyrics ? "连续歌词区已开启：小缝会自动连接，共享边界会一起移动。" : "连续歌词区已关闭：允许显式休止和空白。", "success");
+  });
   document.querySelectorAll("[data-layer]").forEach(input => input.addEventListener("change", () => {
     state.layers[input.dataset.layer] = input.checked;
     renderLayerVisibility();
     renderCanvas();
   }));
+
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      if (state.handleDragging) {
+        const previous = state.handleDragging.previous;
+        state.handleDragging = null;
+        setSelection(previous.start, previous.end, false);
+        setStatus("已取消边缘调整。", "success");
+      } else if (state.dragging) {
+        const previous = state.dragging.previous;
+        state.dragging = null;
+        setSelection(previous.start, previous.end, false);
+        setStatus("已取消框选。", "success");
+      }
+      return;
+    }
+    if (event.code !== "Space" || event.repeat || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target;
+    const editingText = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable;
+    if (editingText || !state.audioUrl) return;
+    event.preventDefault();
+    togglePlayback();
+  });
 
   let resizeTimer = null;
   window.addEventListener("resize", () => {

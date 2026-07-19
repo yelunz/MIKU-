@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-20T02:51:19+08:00",
+  "last_updated": "2026-07-20T03:36:12+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "synced",
@@ -82,7 +82,15 @@
       "runtime": "standards-browser-no-build",
       "analysis_schema": "0.1.0",
       "project_schema": "miku-workbench-project/0.1.0",
-      "status": "runnable-technical-prototype",
+      "status": "runnable-interaction-prototype-under-multitrack-redesign",
+      "editor_interactions": [
+        "space-play-pause",
+        "beat-snap-1-1-2-1-4",
+        "alt-temporary-snap-bypass",
+        "selection-edge-handles",
+        "keyboard-edge-nudge",
+        "continuous-lyric-gap-closing"
+      ],
       "verified_environment": "windows-edge"
     }
   ],
@@ -91,6 +99,7 @@
     "primary_candidate": "electron-43.x",
     "secondary_candidate": "tauri-2.11.x",
     "decision_record": "docs/DESKTOP_STACK_SPIKE.md",
+    "validation_deferred_until": "p1.2-multitrack-note-model-stable",
     "frontend_bridge": "prototype/web-workbench/desktop-bridge.js",
     "required_packaged_platforms": [
       "windows-x64",
@@ -107,8 +116,32 @@
     "edit-and-regenerate-results",
     "export-through-engine-adapters",
     "local-project-persistence",
-    "per-work-round-logs"
+    "per-work-round-logs",
+    "separate-backing-track-into-stems",
+    "transcribe-editable-note-and-drum-candidates",
+    "edit-accompaniment-nondestructively",
+    "piano-roll-and-rhythm-grid",
+    "progressive-novice-to-professional-editing"
   ],
+  "multitrack_composition_design": {
+    "decision_record": "docs/MULTITRACK_COMPOSITION_DESIGN.md",
+    "pipeline_layers": [
+      "source-separation",
+      "audio-to-symbolic-transcription",
+      "vocal-melody-generation-or-input"
+    ],
+    "time_model": {
+      "audio_authority": "integer-sample",
+      "musical_time": "ppq-960-tick",
+      "shared_boundaries": "anchor-id"
+    },
+    "technology_spike_candidates": {
+      "fast-analysis": "librosa",
+      "single-instrument-transcription": "basic-pitch",
+      "optional-stem-quality-baseline": "demucs-v4-license-blocked-for-bundling",
+      "time-stretch-preview": "soundtouch-license-review-required"
+    }
+  },
   "current_deliverables": [
     "README.md",
     "AGENTS.md",
@@ -130,10 +163,15 @@
     "prototype/web-workbench/desktop-bridge.js",
     "prototype/web-workbench/README.md",
     "tests/test_web_workbench_static.py",
-    "docs/DESKTOP_STACK_SPIKE.md"
+    "docs/DESKTOP_STACK_SPIKE.md",
+    "docs/MULTITRACK_COMPOSITION_DESIGN.md"
   ],
   "next_actions": [
-    "wrap-web-workbench-in-minimal-electron-validation-shell",
+    "finish-p1.1-editor-interactions-with-shared-anchor-and-explicit-rest-model",
+    "define-p1.2-sample-ppq-anchor-multitrack-project-schema",
+    "build-editable-note-and-drum-candidate-piano-roll-spike",
+    "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
+    "wrap-stable-multitrack-workbench-in-minimal-electron-validation-shell",
     "connect-desktop-bridge-to-packaged-python-analysis-process",
     "run-packaged-workbench-validation-on-windows-macos-linux",
     "reduce-chord-and-section-baseline-errors-or-compare-production-analysis-libraries",
@@ -148,6 +186,10 @@
     "desktop-application-stack",
     "minimum-analysis-layers-for-mvp",
     "chinese-and-japanese-reading-input-workflow",
-    "working-title-and-brand-review"
+    "working-title-and-brand-review",
+    "source-separation-backend-and-model-license",
+    "audio-to-note-transcription-backend",
+    "sample-ppq-anchor-project-schema",
+    "novice-shape-controls-to-professional-data-mapping"
   ]
 }

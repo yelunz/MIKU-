@@ -101,10 +101,26 @@ class WebWorkbenchStaticTests(unittest.TestCase):
             "selection-start", "selection-end", "lyric-language", "lyric-text",
             "save-lyric-button", "chord-label", "save-chord-button",
             "restore-chord-button", "import-project-button", "export-project-button",
+            "snap-grid", "continuous-lyrics", "selection-start-handle", "selection-end-handle",
         }
         self.assertTrue(required_ids.issubset(set(self.parser.ids)))
         for identifier in required_ids:
             self.assertRegex(self.javascript, re.escape(identifier))
+
+    def test_editor_shortcuts_snapping_and_shared_edges_are_wired(self) -> None:
+        self.assertIn('event.code !== "Space"', self.javascript)
+        self.assertIn("event.repeat", self.javascript)
+        self.assertIn("event.isComposing", self.javascript)
+        self.assertIn("snapIntervalSeconds", self.javascript)
+        self.assertIn("linkedPrevious.end = start", self.javascript)
+        self.assertIn("linkedNext.start = end", self.javascript)
+        self.assertIn('block.style.right = percentAt(state.duration - region.end)', self.javascript)
+        self.assertIn('gap.textContent = "未分配 / 休止"', self.javascript)
+        self.assertIn("state.handleDragging", self.javascript)
+        self.assertIn('event.key === "Escape"', self.javascript)
+        self.assertIn('addEventListener("pointercancel"', self.javascript)
+        self.assertIn("event.altKey ? 0.001", self.javascript)
+        self.assertNotIn("target instanceof HTMLButtonElement", self.javascript)
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@
 
 先按[测试夹具说明](fixtures/basic-c-major-120-v1/README.md)生成 WAV，再运行音频分析器。随后可以直接用浏览器打开 `prototype/web-workbench/index.html`，导入生成的分析 JSON 和 WAV。
 
-完整操作、启动本地 HTTP 服务的可选命令和已知边界见 [Web 工作台说明](prototype/web-workbench/README.md)。该原型可以播放伴奏、查看真实分析图层、建立中文/日文歌词区域、修正和弦候选并导入/导出本地项目；它不生成演唱旋律，也不是桌面安装包。
+完整操作、启动本地 HTTP 服务的可选命令和已知边界见 [Web 工作台说明](prototype/web-workbench/README.md)。该原型可以播放伴奏、查看真实分析图层、按节拍吸附并调整选区边缘、建立连续中文/日文歌词区域、修正和弦候选并导入/导出本地项目；它还没有伴奏 stem、钢琴卷帘或演唱旋律，也不是桌面安装包。
 
 ## 项目资料
 
@@ -48,6 +48,7 @@
 - [时间轴交互原型说明](docs/TIMELINE_PROTOTYPE.md)
 - [可运行 Web 工作台](prototype/web-workbench/README.md)
 - [桌面技术栈验证决定](docs/DESKTOP_STACK_SPIKE.md)
+- [多轨伴奏与歌声编曲重构](docs/MULTITRACK_COMPOSITION_DESIGN.md)
 - [外部能力调研](docs/RESEARCH_NOTES.md)
 - [测试夹具](fixtures/basic-c-major-120-v1/README.md)
 - [协作与日志规范](docs/WORKFLOW.md)
