@@ -17,9 +17,11 @@
 - VOCALOID 的工程格式和扩展能力随代际变化：V3/V4 使用 VSQX，V5/V6 使用 VPR；V3/V4 有 Job Plugin，V5/V6 已取消。V6 官方可读取 VPR、VSQX、MIDI并写出 VPR、MIDI，但这不能外推为所有版本能力。[VOCALOID6 官方规格](https://www.vocaloid.com/en/vocaloid6/specs/)、[V6 Job Plugin FAQ](https://www.vocaloid.com/en/support/faq/614)、[VOCALOID5 官方参考手册](https://rsc-net.vocaloid.com/assets/pdf_files/VOCALOID5_Reference_Manual_ENG.pdf)
 - MIDI 是未知 VOCALOID 版本时的保守交换基线，但不同代际不能保证歌词、音素、音高曲线或厂商参数。V6 到 6.2 才明确支持识别 MIDI 内嵌歌词，所以不能把带歌词 MIDI 当成所有版本的可靠通道。用户确认版本后，适配器按 `vocaloid/{major}/{editor-flavor}` 建立能力表和真实编辑器验收样例。[V6 MIDI 导出 FAQ](https://www.vocaloid.com/en/support/faq/636)、[V4 MIDI 导入边界](https://www.vocaloid.com/en/support/faq/308)
 - VOCALOID3/4 独立编辑器仅 Windows；VOCALOID5/6 支持 Windows、macOS；官方编辑器没有 Linux 版本。Linux 上只准备和检查交换文件，不承诺本机打开官方编辑器。[V3 平台要求](https://www.vocaloid.com/en/support/faq/586)、[V4 平台要求](https://www.vocaloid.com/en/support/faq/585)、[V5 平台要求](https://www.vocaloid.com/en/support/faq/711)
-- [Synthesizer V Studio Pro 第一代官方手册](https://sv1.docs.dreamtonics.com/)覆盖 1.x 工作流；[官方产品比较](https://www.dreamtonics.com/synthesizerv/)列明第一代支持 Windows、macOS、Linux。[第一代插件手册](https://sv1.docs.dreamtonics.com/en/synthv/plugins/instrument)同时说明插件只支持 Windows/macOS，Linux 安装程序不包含插件。因此 Linux 适配只能把第一代作为独立应用，不能承诺 VST3、AU、AAX 或 ARA 集成。
-- 第一代工程文件为 `.svp`，但官方没有公开稳定的内部格式规范。本项目不直接生成或修改 `.svp`；基础适配使用官方支持的 MIDI 交换，高保真路径使用在用户实际 1.x 版本上验证过的配套脚本。[第一代项目手册](https://sv1.docs.dreamtonics.com/en/synthv/basic-usage/project)还说明“Import as Tracks”不会导入速度数据，因此适配器必须额外处理或提示速度图。
-- [第一代官方脚本说明](https://sv1.docs.dreamtonics.com/en/synthv/advanced-usage/scripts)确认 Pro 版支持 JavaScript 和 Lua 脚本。当前在线 API 参考已经包含第二代新增内容，不能把所有现有接口自动视为 1.x 能力；首轮必须读取用户确切版本并做最小实机验证。
+- 没有找到 Yamaha 或可信第三方发布的各代活跃用户数量，不能声称某一代“用户最多”。本项目选择 VOCALOID6 Editor 完整版 6.13.0（Standalone），依据是它截至 2026-07-20 为官方当前销售与维护的稳定版本，并能读取 V3/V4 的 VSQX 和 V5/V6 的 VPR。旧产品在官方支持政策中已停售，且官方只支持各产品最新更新版本。[6.13.0 官方更新页](https://www.vocaloid.com/en/support/download/update_v6e/)、[官方支持政策](https://www.vocaloid.com/en/support/inquiry/support_policy_products/)、[旧声库与工程兼容说明](https://www.vocaloid.com/en/learn/ln6105/)
+- `vocaloid/6/standalone` 首条交换路径使用标准 MIDI；V6.2 起官方明确支持 MIDI 内嵌歌词及字符编码选择，但音高曲线、发音时序、力度和 AI 表情等仍需在损失报告中列出。正式验收固定 6.13.0 完整版，Lite 版只做可选冒烟测试。[V6.2 更新说明](https://www.vocaloid.com/en/news/support_14/)
+- 用户版本固定为 Synthesizer V Studio Pro 1.9.0 final。[1.9.0 官方发布记录](https://dreamtonics.com/synthesizer-v-studio-1-9-0-final-update/)确认三平台独立版；[第一代插件手册](https://sv1.docs.dreamtonics.com/en/synthv/plugins/instrument)说明插件只支持 Windows/macOS。ARA 与 Voice-to-MIDI 是 1.11 才加入，不能列入 1.9.0 能力。[1.11.0 发布记录](https://dreamtonics.com/synthesizer-v-studio-1-11-0-update/)
+- 第一代工程文件为 `.svp`，但官方没有公开稳定内部格式。本项目不直接生成或修改 `.svp`；1.9.0 基础适配使用 MIDI，高保真路径使用 `minEditorVersion: 0x010900` 的 ES5 配套脚本与中立 sidecar。[第一代项目手册](https://sv1.docs.dreamtonics.com/en/synthv/basic-usage/project)说明“Import as Tracks”不会导入速度数据，且 1.10+ 普通工程必须显式另存为 1.9.0 兼容副本才能由 1.9.0 打开。
+- 1.9.0 脚本需要用 `SV.getHostInfo()` 检查版本和系统，只使用 Project、Track、NoteGroup、Note、Automation、TimeAxis、Selection、Playback 等已确认基础对象。无人声伴奏工程同时保存物理秒、音乐拍/blick 和完整速度图，不能用单一 BPM 简化可变速映射。[宿主检测 API](https://resource.dreamtonics.com/scripting/SV.html)、[TimeAxis API](https://resource.dreamtonics.com/scripting/TimeAxis.html)
 
 ## 名称与第三方权利
 
@@ -30,8 +32,8 @@
 
 ## 待验证问题
 
-- 用户安装的 Synthesizer V Studio Pro 1.x 确切版本，以及该版本可用的脚本 API 子集。
-- 用户希望优先支持的 VOCALOID 官方编辑器具体版本和编辑器形态；现有 VOCALOID6 资料只是一项调研事实，不代表目标已经锁定为第六代。
+- Synthesizer V Studio Pro 1.9.0 在 Windows、macOS、Linux 的真实脚本安装和 MIDI/速度图行为。
+- VOCALOID6 Editor 6.13.0 完整版真实测试环境是否可获得，以及 V5/V4/V3 MIDI 降级路径的实际字段保留情况。
 - 各目标格式能否保存音素、音高曲线、力度、呼吸和声库特有参数。
 - Windows、macOS、Linux 上各音频分析依赖的安装体积、CPU/GPU 速度和离线打包方式。
 - 中文、日文歌词切分与目标声库发音系统之间的映射；英文不在首版范围内。

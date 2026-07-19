@@ -1,0 +1,6 @@
+# Generated test audio and manifests are reproducible and should not be committed.
+fixtures/.generated/
+
+# Python cache files from fixture tools.
+__pycache__/
+*.pyc

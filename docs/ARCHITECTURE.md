@@ -15,7 +15,7 @@
   ↓
 格式适配器
   ↓
-MIDI / OpenUtau（验证时最新版稳定版）/ Synthesizer V Studio Pro 1.x / VOCALOID（版本待定）/ 其他目标
+MIDI / OpenUtau（验证时最新版稳定版）/ Synthesizer V Studio Pro 1.9.0 / VOCALOID6 Editor 6.13.0 / 其他目标
 ```
 
 ## 核心模块
@@ -87,17 +87,19 @@ MIDI / OpenUtau（验证时最新版稳定版）/ Synthesizer V Studio Pro 1.x /
 
 1. 标准 MIDI 作为最低兼容基线。
 2. 为验证时最新版稳定版 OpenUtau 完成首个开放工程格式的端到端适配。首版直接生成官方公开的 USTX 0.6 文本工程，不依赖 GUI 自动化或实验性插件 API；MIDI/UST 仅作为降级交换格式。
-3. 为 Synthesizer V Studio Pro 1.x 建立独立的 `synthv-v1` 版本化适配器；基础通道使用 MIDI 与节拍/歌词辅助数据，高保真通道通过用户实际 1.x 版本验证后的配套脚本实现。不要直接读写未公开稳定规范的 `.svp` 内部结构。
-4. 为 VOCALOID 官方编辑器使用 `vocaloid/{major}/{editor-flavor}` 形式的版本化适配器，例如 `vocaloid/4/standalone` 或 `vocaloid/6/lite`。版本未确认时只提供保守的 MIDI 基线和字段损失报告；没有公开稳定格式规范时，不直接生成或修改专有 VSQX/VPR 内部结构。
+3. 为 Synthesizer V Studio Pro 1.9.0 建立独立的 `synthv-v1.9` 适配器；基础通道使用 MIDI 与节拍/歌词辅助数据，高保真通道通过 1.9.0 实机验证后的配套脚本实现。不要直接读写未公开稳定规范的 `.svp` 内部结构。
+4. VOCALOID 主适配器为 `vocaloid/6/standalone`，验收版本固定为 6.13.0 完整版。首条可靠路径使用带音符、速度、拍号和歌词事件的标准 MIDI，并显示字段损失报告；没有公开稳定格式规范时，不直接生成或修改专有 VPR/VSQX 内部结构。V5/V4/V3 只作为版本化 MIDI 降级目标。
 5. 仅在明确授权和稳定性可接受时考虑界面自动化。
 
 适配器能力按“目标编辑器版本 × 操作系统”记录。核心应用支持三个系统，不代表每个外部后端或每项适配能力在三个系统上完全相同。
 
-Synthesizer V Studio Pro 1.x 的三平台适配必须区分运行形态：Windows/macOS 可以验证独立版和插件增强路径；Linux 只承诺独立应用路径，因为官方 Linux 安装程序不包含插件。其“Import as Tracks”不会导入速度数据，适配器需要显式同步速度图或在导入前给出提示。
+Synthesizer V Studio Pro 1.9.0 的三平台适配必须区分运行形态：Windows/macOS 可以验证独立版和插件增强路径；Linux 只承诺独立应用路径，因为官方 Linux 安装程序不包含插件。其“Import as Tracks”不会导入速度数据，适配器需要显式同步速度图或在导入前给出提示。
 
 OpenUtau 适配器需要把实际稳定版号与 USTX 格式版本写进测试记录。USTX 可以保存伴奏引用、歌词、音符、音高、颤音和参数曲线，但目标电脑是否能正确发音仍取决于已安装声库和 Phonemizer；导出时应做依赖检查，并允许创建未绑定声库的工程。
 
-VOCALOID 适配器必须声明主版本、编辑器形态、原生格式、可读格式、MIDI 歌词能力、参数映射和已知损失。V3/V4 的 Job Plugin 不能作为核心路线，因为 V5/V6 已取消该能力；VST/AU/ARA 也不等于第三方自动化 API。官方编辑器没有 Linux 版本，所以 Linux 只提供交换文件准备与检查，实际打开验收在目标编辑器支持的系统进行。
+VOCALOID 适配器必须声明主版本、编辑器形态、原生格式、可读格式、MIDI 歌词能力、参数映射和已知损失。主目标 `vocaloid/6/standalone` 固定验证 6.13.0 完整版；Lite 版可做次级冒烟测试，但两轨限制不能替代完整版验收。V3/V4 的 Job Plugin 不能作为核心路线，因为 V5/V6 已取消该能力；VST/AU/ARA 也不等于第三方自动化 API。官方编辑器没有 Linux 版本，所以 Linux 只提供交换文件准备与检查，实际打开验收在 Windows/macOS 进行。
+
+Synthesizer V 1.9.0 适配器分为 `midi-baseline`、`midi-plus-helper-script` 和 `ust-group-fallback`。配套脚本必须声明 `minEditorVersion: 0x010900` 并在运行时检查宿主版本；脚本保持 ES5 风格，只使用 1.9 已确认的基础对象。ARA 和 Voice-to-MIDI 是 1.11 才加入的能力，不得写入 1.9.0 能力矩阵。1.10+ 普通工程不能由 1.9.0 直接打开，必须由新版显式另存为 1.9.0 兼容副本。
 
 ## 技术栈决定方式
 

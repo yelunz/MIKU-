@@ -24,8 +24,9 @@
 - 不得把“面向小白”理解为隐藏或删除专业数据。应采用渐进式呈现：默认界面直观，详细数据仍可查看和修改。
 - 不得假设导入的伴奏中一定存在可提取的人声旋律。分析、转录与生成是不同能力。
 - 核心应用首版必须支持 Windows、macOS、Linux。
-- 首批适配目标为 Synthesizer V Studio Pro 1.x 和验证时最新版稳定版 OpenUtau；不要误写成 Synthesizer V Studio 2 Pro，也不要把 OpenUtau 预发布版当作稳定基线。
-- VOCALOID 官方编辑器是后续适配目标，但具体版本尚未确认；不得擅自把目标锁定为 VOCALOID6。
+- 首批适配目标为用户现有的 Synthesizer V Studio Pro 1.9.0 和验证时最新版稳定版 OpenUtau；不要误写成 Synthesizer V Studio 2 Pro，也不要把 OpenUtau 预发布版当作稳定基线。
+- OpenUtau 不得因新增 VOCALOID 目标而降级；首个端到端工程导出验收必须包含 USTX 0.6 和三平台打开验证。
+- VOCALOID 后续适配目标已选定为 VOCALOID6 Editor 完整版 6.13.0（Standalone）；旧版本只走明确标注损失的 MIDI 降级路径。
 - 首版歌词支持中文和日文，英文明确不在当前范围内。
 - 第一轮技术验证使用无人声伴奏。
 

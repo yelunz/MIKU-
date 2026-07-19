@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "product-definition",
   "status": "planning",
-  "last_updated": "2026-07-20T01:11:29+08:00",
+  "last_updated": "2026-07-20T01:43:59+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "synced",
@@ -15,11 +15,11 @@
       "linux"
     ],
     "priority_vocal_editors": [
-      "synthesizer-v-studio-pro-1.x",
+      "synthesizer-v-studio-pro-1.9.0",
       "openutau-latest-stable-at-validation"
     ],
     "additional_vocal_editors": [
-      "vocaloid-official-version-tbd"
+      "vocaloid6-editor-6.13.0-full-standalone"
     ],
     "supported_lyric_languages": [
       "zh",
@@ -38,8 +38,20 @@
     "openutau_stable": "0.1.565",
     "ustx_format": "0.6",
     "synthesizer_v_studio_pro_1x_latest_official_update_found": "1.11.2",
-    "synthesizer_v_user_installed_build": "unknown",
-    "vocaloid_target_version": "unknown"
+    "synthesizer_v_user_installed_build": "1.9.0",
+    "vocaloid_target_version": "6.13.0",
+    "vocaloid_target_flavor": "full-standalone"
+  },
+  "test_fixtures": {
+    "primary_backing_track": {
+      "fixture_id": "basic-c-major-120-v1",
+      "source_dir": "fixtures/basic-c-major-120-v1",
+      "generated_wav": "fixtures/.generated/basic-c-major-120-v1.wav",
+      "generated_locally": true,
+      "wav_sha256": "160de5896fff7379fe7fb3d32961b20ac935ec6251d60f25bb98453d38fc35d1",
+      "duration_seconds": 50.0,
+      "sample_rate_hz": 48000
+    }
   },
   "confirmed_capabilities": [
     "import-local-audio",
@@ -59,19 +71,21 @@
     "docs/ARCHITECTURE.md",
     "docs/ROADMAP.md",
     "docs/RESEARCH_NOTES.md",
-    "docs/WORKFLOW.md"
+    "docs/WORKFLOW.md",
+    "fixtures/basic-c-major-120-v1/README.md",
+    "fixtures/basic-c-major-120-v1/ground-truth.json",
+    "fixtures/basic-c-major-120-v1/generate.py"
   ],
   "next_actions": [
-    "confirm-installed-synthesizer-v-studio-pro-1.x-build",
-    "obtain-or-create-authorized-backing-track-test-fixture",
+    "run-audio-analysis-spike-with-basic-c-major-120-v1",
+    "verify-synthesizer-v-studio-pro-1.9.0-adapter-capabilities",
     "prepare-interaction-wireframe",
     "run-cross-platform-audio-analysis-technology-spike",
-    "define-openutau-and-synthesizer-v-1.x-adapter-capability-matrices",
-    "define-vocaloid-versioned-adapter-capability-matrix"
+    "define-openutau-and-synthesizer-v-1.9.0-adapter-capability-matrices",
+    "define-vocaloid6-6.13.0-and-legacy-midi-capability-matrix"
   ],
   "open_decisions": [
-    "installed-synthesizer-v-studio-pro-1.x-exact-build",
-    "target-vocaloid-official-editor-version",
+    "vocaloid6-6.13.0-full-test-environment-availability",
     "adapter-depth-per-target-and-operating-system",
     "desktop-application-stack",
     "minimum-analysis-layers-for-mvp",

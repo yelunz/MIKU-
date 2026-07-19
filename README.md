@@ -24,8 +24,8 @@
 ## 首版已确认范围
 
 - 运行系统：Windows、macOS、Linux。
-- 第一优先后端：Synthesizer V Studio Pro 第一代（1.x，不是 Studio 2 Pro）和验证时最新版稳定版 OpenUtau。
-- 后续官方后端：VOCALOID 官方编辑器，具体目标版本待用户确认。
+- 第一优先后端：用户现有的 Synthesizer V Studio Pro 1.9.0（不是 Studio 2 Pro）和验证时最新版稳定版 OpenUtau。
+- 后续官方后端：VOCALOID6 Editor 完整版 6.13.0（Standalone），并为旧版本保留 MIDI 降级路径。
 - 歌词语言：中文、日文；暂不支持英文。
 - 第一轮输入：无人声伴奏。
 
@@ -39,6 +39,7 @@
 - [技术方案](docs/ARCHITECTURE.md)
 - [阶段计划](docs/ROADMAP.md)
 - [外部能力调研](docs/RESEARCH_NOTES.md)
+- [测试夹具](fixtures/basic-c-major-120-v1/README.md)
 - [协作与日志规范](docs/WORKFLOW.md)
 - [机器可读项目状态](project-state.json)
 - [工作日志](logs/)

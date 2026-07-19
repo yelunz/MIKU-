@@ -1,0 +1,211 @@
+{
+  "schema_version": "1.0.0",
+  "fixture_id": "basic-c-major-120-v1",
+  "title": "Basic C major 120 BPM backing track",
+  "purpose": "Deterministic instrumental fixture for waveform, spectrum, beat, bar, chord, section, energy and vocal-arrangement tests.",
+  "generator": {
+    "version": "1.0.0",
+    "runtime": "python-standard-library-only",
+    "noise_algorithm": "xorshift32",
+    "seed": 20260720,
+    "third_party_inputs": []
+  },
+  "audio": {
+    "filename": "basic-c-major-120-v1.wav",
+    "container": "wav",
+    "encoding": "pcm-s16le",
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "sample_width_bytes": 2,
+    "duration_seconds": 50.0,
+    "frames_per_channel": 2400000,
+    "target_peak_dbfs": -1.0
+  },
+  "timeline": {
+    "leading_silence_seconds": [
+      0.0,
+      1.0
+    ],
+    "musical_grid_seconds": [
+      1.0,
+      49.0
+    ],
+    "release_tail_seconds": [
+      49.0,
+      50.0
+    ],
+    "bpm": 120.0,
+    "meter_numerator": 4,
+    "meter_denominator": 4,
+    "first_downbeat_seconds": 1.0,
+    "beat_duration_seconds": 0.5,
+    "bar_duration_seconds": 2.0,
+    "bar_count": 24,
+    "bar_start_formula": "1.0 + 2.0 * (bar - 1)"
+  },
+  "key_regions": [
+    {
+      "start_seconds": 1.0,
+      "end_seconds": 49.0,
+      "tonic_pitch_class": 0,
+      "mode": "major",
+      "label": "C major"
+    }
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "label": "Intro",
+      "start_bar": 1,
+      "end_bar": 4,
+      "start_seconds": 1.0,
+      "end_seconds": 9.0,
+      "energy_rank": 1,
+      "gain_q8": 160,
+      "instruments": [
+        "electric-piano",
+        "bass",
+        "soft-pulse"
+      ]
+    },
+    {
+      "id": "a",
+      "label": "A",
+      "start_bar": 5,
+      "end_bar": 12,
+      "start_seconds": 9.0,
+      "end_seconds": 25.0,
+      "energy_rank": 2,
+      "gain_q8": 224,
+      "instruments": [
+        "electric-piano",
+        "bass",
+        "kick",
+        "snare",
+        "closed-hat"
+      ]
+    },
+    {
+      "id": "b",
+      "label": "B",
+      "start_bar": 13,
+      "end_bar": 20,
+      "start_seconds": 25.0,
+      "end_seconds": 41.0,
+      "energy_rank": 3,
+      "gain_q8": 384,
+      "instruments": [
+        "electric-piano",
+        "pad",
+        "arpeggiator",
+        "bass",
+        "kick",
+        "snare",
+        "closed-hat",
+        "open-hat"
+      ]
+    },
+    {
+      "id": "outro",
+      "label": "Outro",
+      "start_bar": 21,
+      "end_bar": 24,
+      "start_seconds": 41.0,
+      "end_seconds": 49.0,
+      "energy_rank": 1,
+      "energy_shape": "decreasing",
+      "gain_q8": 180,
+      "end_gain_q8": 72,
+      "instruments": [
+        "electric-piano",
+        "bass",
+        "kick",
+        "snare",
+        "closed-hat"
+      ]
+    }
+  ],
+  "chord_events": [
+    { "bar": 1, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 1.0, "end_seconds": 3.0, "symbol": "C", "root_pitch_class": 0, "bass_pitch_class": 0, "quality": "major", "bass_midi": 36, "rendered_midi_notes": [48, 55, 60, 64] },
+    { "bar": 2, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 3.0, "end_seconds": 5.0, "symbol": "Am", "root_pitch_class": 9, "bass_pitch_class": 9, "quality": "minor", "bass_midi": 33, "rendered_midi_notes": [45, 52, 57, 60, 64] },
+    { "bar": 3, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 5.0, "end_seconds": 7.0, "symbol": "F", "root_pitch_class": 5, "bass_pitch_class": 5, "quality": "major", "bass_midi": 29, "rendered_midi_notes": [53, 57, 60, 65] },
+    { "bar": 4, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 7.0, "end_seconds": 9.0, "symbol": "G", "root_pitch_class": 7, "bass_pitch_class": 7, "quality": "major", "bass_midi": 31, "rendered_midi_notes": [55, 59, 62, 67] },
+    { "bar": 5, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 9.0, "end_seconds": 11.0, "symbol": "C", "root_pitch_class": 0, "bass_pitch_class": 0, "quality": "major", "bass_midi": 36, "rendered_midi_notes": [48, 55, 60, 64] },
+    { "bar": 6, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 11.0, "end_seconds": 13.0, "symbol": "G/B", "root_pitch_class": 7, "bass_pitch_class": 11, "quality": "major", "bass_midi": 35, "rendered_midi_notes": [47, 55, 59, 62, 67] },
+    { "bar": 7, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 13.0, "end_seconds": 15.0, "symbol": "Am", "root_pitch_class": 9, "bass_pitch_class": 9, "quality": "minor", "bass_midi": 33, "rendered_midi_notes": [45, 52, 57, 60, 64] },
+    { "bar": 8, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 15.0, "end_seconds": 17.0, "symbol": "Em", "root_pitch_class": 4, "bass_pitch_class": 4, "quality": "minor", "bass_midi": 40, "rendered_midi_notes": [52, 55, 59, 64] },
+    { "bar": 9, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 17.0, "end_seconds": 19.0, "symbol": "F", "root_pitch_class": 5, "bass_pitch_class": 5, "quality": "major", "bass_midi": 29, "rendered_midi_notes": [53, 57, 60, 65] },
+    { "bar": 10, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 19.0, "end_seconds": 21.0, "symbol": "C/E", "root_pitch_class": 0, "bass_pitch_class": 4, "quality": "major", "bass_midi": 40, "rendered_midi_notes": [52, 55, 60, 64] },
+    { "bar": 11, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 21.0, "end_seconds": 23.0, "symbol": "Dm", "root_pitch_class": 2, "bass_pitch_class": 2, "quality": "minor", "bass_midi": 38, "rendered_midi_notes": [50, 53, 57, 62] },
+    { "bar": 12, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 23.0, "end_seconds": 25.0, "symbol": "G", "root_pitch_class": 7, "bass_pitch_class": 7, "quality": "major", "bass_midi": 31, "rendered_midi_notes": [55, 59, 62, 67] },
+    { "bar": 13, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 25.0, "end_seconds": 27.0, "symbol": "Am", "root_pitch_class": 9, "bass_pitch_class": 9, "quality": "minor", "bass_midi": 33, "rendered_midi_notes": [45, 52, 57, 60, 64] },
+    { "bar": 14, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 27.0, "end_seconds": 29.0, "symbol": "F", "root_pitch_class": 5, "bass_pitch_class": 5, "quality": "major", "bass_midi": 29, "rendered_midi_notes": [53, 57, 60, 65] },
+    { "bar": 15, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 29.0, "end_seconds": 31.0, "symbol": "C", "root_pitch_class": 0, "bass_pitch_class": 0, "quality": "major", "bass_midi": 36, "rendered_midi_notes": [48, 55, 60, 64] },
+    { "bar": 16, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 31.0, "end_seconds": 33.0, "symbol": "G", "root_pitch_class": 7, "bass_pitch_class": 7, "quality": "major", "bass_midi": 31, "rendered_midi_notes": [55, 59, 62, 67] },
+    { "bar": 17, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 33.0, "end_seconds": 35.0, "symbol": "Am", "root_pitch_class": 9, "bass_pitch_class": 9, "quality": "minor", "bass_midi": 33, "rendered_midi_notes": [45, 52, 57, 60, 64] },
+    { "bar": 18, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 35.0, "end_seconds": 37.0, "symbol": "F", "root_pitch_class": 5, "bass_pitch_class": 5, "quality": "major", "bass_midi": 29, "rendered_midi_notes": [53, 57, 60, 65] },
+    { "bar": 19, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 37.0, "end_seconds": 39.0, "symbol": "Dm", "root_pitch_class": 2, "bass_pitch_class": 2, "quality": "minor", "bass_midi": 38, "rendered_midi_notes": [50, 53, 57, 62] },
+    { "bar": 20, "start_beat": 1.0, "duration_beats": 2.0, "start_seconds": 39.0, "end_seconds": 40.0, "symbol": "Gsus4", "root_pitch_class": 7, "bass_pitch_class": 7, "quality": "suspended-fourth", "bass_midi": 31, "rendered_midi_notes": [55, 60, 62, 67] },
+    { "bar": 20, "start_beat": 3.0, "duration_beats": 2.0, "start_seconds": 40.0, "end_seconds": 41.0, "symbol": "G7", "root_pitch_class": 7, "bass_pitch_class": 7, "quality": "dominant-seventh", "bass_midi": 31, "rendered_midi_notes": [53, 55, 59, 62, 67] },
+    { "bar": 21, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 41.0, "end_seconds": 43.0, "symbol": "F", "root_pitch_class": 5, "bass_pitch_class": 5, "quality": "major", "bass_midi": 29, "rendered_midi_notes": [53, 57, 60, 65] },
+    { "bar": 22, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 43.0, "end_seconds": 45.0, "symbol": "G", "root_pitch_class": 7, "bass_pitch_class": 7, "quality": "major", "bass_midi": 31, "rendered_midi_notes": [55, 59, 62, 67] },
+    { "bar": 23, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 45.0, "end_seconds": 47.0, "symbol": "C", "root_pitch_class": 0, "bass_pitch_class": 0, "quality": "major", "bass_midi": 36, "rendered_midi_notes": [48, 55, 60, 64] },
+    { "bar": 24, "start_beat": 1.0, "duration_beats": 4.0, "start_seconds": 47.0, "end_seconds": 49.0, "symbol": "C", "root_pitch_class": 0, "bass_pitch_class": 0, "quality": "major", "bass_midi": 36, "rendered_midi_notes": [48, 55, 60, 64, 67] }
+  ],
+  "frequency_bands_hz": {
+    "sub": [20, 80],
+    "bass": [80, 200],
+    "low_mid": [200, 500],
+    "mid": [500, 2000],
+    "high_mid": [2000, 6000],
+    "high": [6000, 20000]
+  },
+  "selection_presets": [
+    {
+      "id": "zh-test-region",
+      "language": "zh",
+      "start_seconds": 9.0,
+      "end_seconds": 25.0,
+      "start_bar": 5,
+      "end_bar": 12,
+      "test_only": true
+    },
+    {
+      "id": "ja-test-region",
+      "language": "ja",
+      "start_seconds": 25.0,
+      "end_seconds": 41.0,
+      "start_bar": 13,
+      "end_bar": 20,
+      "test_only": true
+    }
+  ],
+  "arrangement_test_vectors": [
+    {
+      "id": "constrained-eighth-note-grid",
+      "description": "Regression constraint, not a recommended melody or product default.",
+      "note_grid_beats": 0.5,
+      "allowed_pitch_classes": [0, 2, 4, 5, 7, 9, 11],
+      "minimum_midi_note": 55,
+      "maximum_midi_note": 76,
+      "require_non_overlapping_notes": true,
+      "require_notes_inside_selection": true
+    }
+  ],
+  "acceptance": {
+    "tempo_tolerance_bpm": 0.5,
+    "first_downbeat_tolerance_seconds": 0.05,
+    "section_boundary_tolerance_seconds": 0.5,
+    "expected_section_boundaries_seconds": [9.0, 25.0, 41.0],
+    "minimum_adjacent_energy_difference_db": 3.0,
+    "basic_chord_time_weighted_accuracy": 0.9
+  },
+  "provenance": {
+    "origin": "project-procedural-generation",
+    "project_owned": true,
+    "external_audio": false,
+    "external_midi": false,
+    "external_samples": false,
+    "distribution_status": "project-only-until-repository-license-is-confirmed"
+  }
+}
