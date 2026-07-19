@@ -4,10 +4,43 @@
   "working_title": true,
   "phase": "product-definition",
   "status": "planning",
-  "last_updated": "2026-07-20T00:52:52+08:00",
+  "last_updated": "2026-07-20T01:11:29+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "synced",
+  "confirmed_scope": {
+    "target_operating_systems": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "priority_vocal_editors": [
+      "synthesizer-v-studio-pro-1.x",
+      "openutau-latest-stable-at-validation"
+    ],
+    "additional_vocal_editors": [
+      "vocaloid-official-version-tbd"
+    ],
+    "supported_lyric_languages": [
+      "zh",
+      "ja"
+    ],
+    "excluded_lyric_languages": [
+      "en"
+    ],
+    "first_test_audio_mode": "instrumental-backing-track-without-vocals"
+  },
+  "collaboration_rules": {
+    "use_subagents_for_multiple_independent_subtasks": true,
+    "main_agent_owns_integration_logs_commits_and_pushes": true
+  },
+  "current_research_baselines": {
+    "openutau_stable": "0.1.565",
+    "ustx_format": "0.6",
+    "synthesizer_v_studio_pro_1x_latest_official_update_found": "1.11.2",
+    "synthesizer_v_user_installed_build": "unknown",
+    "vocaloid_target_version": "unknown"
+  },
   "confirmed_capabilities": [
     "import-local-audio",
     "analyze-and-visualize-audio",
@@ -29,17 +62,20 @@
     "docs/WORKFLOW.md"
   ],
   "next_actions": [
-    "confirm-first-target-operating-system",
-    "confirm-first-target-vocal-editor",
-    "confirm-first-input-audio-mode",
+    "confirm-installed-synthesizer-v-studio-pro-1.x-build",
+    "obtain-or-create-authorized-backing-track-test-fixture",
     "prepare-interaction-wireframe",
-    "run-audio-analysis-technology-spike"
+    "run-cross-platform-audio-analysis-technology-spike",
+    "define-openutau-and-synthesizer-v-1.x-adapter-capability-matrices",
+    "define-vocaloid-versioned-adapter-capability-matrix"
   ],
   "open_decisions": [
-    "first-target-vocal-editor",
-    "first-supported-lyric-language",
+    "installed-synthesizer-v-studio-pro-1.x-exact-build",
+    "target-vocaloid-official-editor-version",
+    "adapter-depth-per-target-and-operating-system",
     "desktop-application-stack",
     "minimum-analysis-layers-for-mvp",
+    "chinese-and-japanese-reading-input-workflow",
     "working-title-and-brand-review"
   ]
 }
