@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Miku 歌姬解放计划 · 音频工作台原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">P1 · 本地优先技术原型</p>
+      <h1>Miku 歌姬解放计划</h1>
+      <p class="subtitle">导入伴奏分析结果，选择歌词区域，检查并修正候选数据。</p>
+    </div>
+    <div class="header-actions">
+      <button id="import-project-button" type="button">导入项目</button>
+      <button id="export-project-button" class="primary" type="button" disabled>导出项目</button>
+      <input id="project-file" class="visually-hidden" type="file" accept="application/json,.json">
+    </div>
+  </header>
+
+  <main>
+    <section class="import-panel" aria-labelledby="import-title">
+      <div>
+        <h2 id="import-title">1. 导入本地文件</h2>
+        <p>分析 JSON 来自 <code>tools/analyze_audio.py</code>；音频只在当前浏览器页面中使用，不会上传。</p>
+      </div>
+      <label class="file-picker">
+        <span>分析 JSON</span>
+        <input id="analysis-file" type="file" accept="application/json,.json">
+      </label>
+      <label class="file-picker">
+        <span>无人声伴奏 WAV</span>
+        <input id="audio-file" type="file" accept="audio/wav,.wav">
+      </label>
+      <div id="status" class="status" role="status" aria-live="polite">等待导入分析 JSON。</div>
+    </section>
+
+    <section id="workbench" class="workbench" aria-labelledby="workbench-title" hidden>
+      <div class="summary-bar">
+        <div>
+          <p class="eyebrow">分析总览</p>
+          <h2 id="workbench-title">2. 观察并选择伴奏区域</h2>
+        </div>
+        <dl class="summary-metrics">
+          <div><dt>时长</dt><dd id="summary-duration">—</dd></div>
+          <div><dt>速度候选</dt><dd id="summary-tempo">—</dd></div>
+          <div><dt>调性候选</dt><dd id="summary-key">—</dd></div>
+          <div><dt>分析器</dt><dd id="summary-analyzer">—</dd></div>
+        </dl>
+      </div>
+
+      <div class="notice" role="note">
+        当前输入是无人声伴奏：节拍、调性、和弦和段落都是可修正候选，不代表已经提取出人声主旋律。
+      </div>
+
+      <div class="transport" aria-label="播放控制">
+        <button id="play-button" class="primary" type="button" disabled>播放</button>
+        <button id="stop-button" type="button" disabled>停止</button>
+        <output id="play-time">00:00.000 / 00:00.000</output>
+        <label class="zoom-control" for="zoom-range">缩放
+          <input id="zoom-range" type="range" min="8" max="48" step="4" value="16">
+        </label>
+        <span id="audio-name" class="muted">尚未关联 WAV</span>
+      </div>
+
+      <div class="layer-toolbar" role="group" aria-label="分析图层">
+        <label><input type="checkbox" data-layer="waveform" checked> 波形</label>
+        <label><input type="checkbox" data-layer="energy" checked> 能量</label>
+        <label><input type="checkbox" data-layer="beats" checked> 节拍</label>
+        <label><input type="checkbox" data-layer="sections" checked> 段落</label>
+        <label><input type="checkbox" data-layer="chords" checked> 和弦</label>
+      </div>
+
+      <div class="timeline-layout">
+        <div class="timeline-card">
+          <div id="timeline-scroll" class="timeline-scroll">
+            <div id="timeline-content" class="timeline-content">
+              <div class="track-row ruler-row">
+                <div class="track-label">时间</div>
+                <div id="ruler" class="track-lane ruler"></div>
+              </div>
+              <div class="track-row" data-track="sections">
+                <div class="track-label">段落候选</div>
+                <div id="sections-lane" class="track-lane blocks-lane"></div>
+              </div>
+              <div class="track-row" data-track="chords">
+                <div class="track-label">和弦候选</div>
+                <div id="chords-lane" class="track-lane blocks-lane"></div>
+              </div>
+              <div class="track-row waveform-row">
+                <div class="track-label">伴奏总览</div>
+                <div id="waveform-lane" class="track-lane waveform-lane" tabindex="0" aria-label="伴奏波形，可拖拽建立选区">
+                  <canvas id="timeline-canvas"></canvas>
+                  <div id="selection-overlay" class="selection-overlay" hidden></div>
+                  <div id="playhead" class="playhead" hidden></div>
+                </div>
+              </div>
+              <div class="track-row">
+                <div class="track-label">歌词区域</div>
+                <div id="lyrics-lane" class="track-lane blocks-lane lyrics-lane">
+                  <span id="lyrics-empty" class="empty-lane">在波形上拖选一段，然后添加中文或日文歌词</span>
+                </div>
+              </div>
+              <div class="track-row">
+                <div class="track-label">演唱草稿</div>
+                <div class="track-lane empty-lane-container">
+                  <span class="empty-lane">尚未生成；伴奏分析不会自动变成人声旋律</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p id="selection-summary" class="selection-summary">尚未选择区域。</p>
+        </div>
+
+        <aside class="inspector" aria-label="编辑检查器">
+          <section class="inspector-section">
+            <h3>选区与歌词</h3>
+            <div class="time-fields">
+              <label>开始（秒）<input id="selection-start" type="number" min="0" step="0.001" value="0"></label>
+              <label>结束（秒）<input id="selection-end" type="number" min="0" step="0.001" value="0"></label>
+            </div>
+            <label>歌词语言
+              <select id="lyric-language">
+                <option value="zh">中文</option>
+                <option value="ja">日文</option>
+              </select>
+            </label>
+            <label>整句歌词
+              <textarea id="lyric-text" rows="4" placeholder="输入选区对应的歌词"></textarea>
+            </label>
+            <div class="button-row">
+              <button id="save-lyric-button" class="primary" type="button">保存歌词区域</button>
+              <button id="cancel-lyric-edit-button" type="button" hidden>取消编辑</button>
+              <button id="delete-lyric-button" class="danger" type="button" hidden>删除</button>
+            </div>
+          </section>
+
+          <section id="chord-inspector" class="inspector-section" hidden>
+            <h3>修正和弦候选</h3>
+            <p id="chord-detail" class="muted"></p>
+            <label>当前和弦
+              <input id="chord-label" type="text" maxlength="24" autocomplete="off">
+            </label>
+            <div class="button-row">
+              <button id="save-chord-button" class="primary" type="button">保存修正</button>
+              <button id="restore-chord-button" type="button">恢复分析值</button>
+            </div>
+          </section>
+
+          <details class="inspector-section">
+            <summary>查看精确数据</summary>
+            <pre id="exact-data">选择和弦或歌词区域后显示。</pre>
+          </details>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <audio id="audio-player" preload="metadata"></audio>
+  <script src="desktop-bridge.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>

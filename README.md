@@ -2,7 +2,7 @@
 
 一个面向非专业音乐用户的、本地优先的音频分析与虚拟歌声编排前端。
 
-> 当前状态：P1 音频工作台技术验证已开始；已有可运行分析 CLI 和交互时间轴原型，尚无可安装桌面应用。
+> 当前状态：P1 音频工作台技术验证进行中；已有可运行分析 CLI 和浏览器工作台，尚无可安装桌面应用。
 
 ## 项目要解决的问题
 
@@ -33,6 +33,12 @@
 
 当前官方资料显示，VOCALOID 编辑器没有 Linux 版本。因此 Linux 上可以使用本项目的核心能力并准备、检查、导出交换文件，但不能承诺在本机启动 VOCALOID 官方编辑器。
 
+## 运行当前工作台原型
+
+先按[测试夹具说明](fixtures/basic-c-major-120-v1/README.md)生成 WAV，再运行音频分析器。随后可以直接用浏览器打开 `prototype/web-workbench/index.html`，导入生成的分析 JSON 和 WAV。
+
+完整操作、启动本地 HTTP 服务的可选命令和已知边界见 [Web 工作台说明](prototype/web-workbench/README.md)。该原型可以播放伴奏、查看真实分析图层、建立中文/日文歌词区域、修正和弦候选并导入/导出本地项目；它不生成演唱旋律，也不是桌面安装包。
+
 ## 项目资料
 
 - [产品定义](docs/PRODUCT_DEFINITION.md)
@@ -40,6 +46,8 @@
 - [阶段计划](docs/ROADMAP.md)
 - [第一轮音频分析基线](analysis/README.md)
 - [时间轴交互原型说明](docs/TIMELINE_PROTOTYPE.md)
+- [可运行 Web 工作台](prototype/web-workbench/README.md)
+- [桌面技术栈验证决定](docs/DESKTOP_STACK_SPIKE.md)
 - [外部能力调研](docs/RESEARCH_NOTES.md)
 - [测试夹具](fixtures/basic-c-major-120-v1/README.md)
 - [协作与日志规范](docs/WORKFLOW.md)

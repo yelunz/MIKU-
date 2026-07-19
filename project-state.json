@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-20T02:07:46+08:00",
+  "last_updated": "2026-07-20T02:51:19+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "synced",
@@ -75,8 +75,29 @@
       "repository_spec": "docs/TIMELINE_PROTOTYPE.md",
       "local_visualization": "C:/Users/yEluN/.codex/visualizations/2026/07/19/019f7b37-c6cd-7ed0-a19c-779fa2ced9c2/miku-timeline-prototype.html",
       "status": "interactive-wireframe"
+    },
+    {
+      "id": "web-audio-workbench",
+      "entrypoint": "prototype/web-workbench/index.html",
+      "runtime": "standards-browser-no-build",
+      "analysis_schema": "0.1.0",
+      "project_schema": "miku-workbench-project/0.1.0",
+      "status": "runnable-technical-prototype",
+      "verified_environment": "windows-edge"
     }
   ],
+  "desktop_stack_validation": {
+    "decision_status": "proposed-not-locked",
+    "primary_candidate": "electron-43.x",
+    "secondary_candidate": "tauri-2.11.x",
+    "decision_record": "docs/DESKTOP_STACK_SPIKE.md",
+    "frontend_bridge": "prototype/web-workbench/desktop-bridge.js",
+    "required_packaged_platforms": [
+      "windows-x64",
+      "macos-apple-silicon",
+      "ubuntu-22.04-x64"
+    ]
+  },
   "confirmed_capabilities": [
     "import-local-audio",
     "analyze-and-visualize-audio",
@@ -102,10 +123,19 @@
     "tools/analyze_audio.py",
     "analysis/README.md",
     "tests/test_audio_analysis.py",
-    "docs/TIMELINE_PROTOTYPE.md"
+    "docs/TIMELINE_PROTOTYPE.md",
+    "prototype/web-workbench/index.html",
+    "prototype/web-workbench/styles.css",
+    "prototype/web-workbench/app.js",
+    "prototype/web-workbench/desktop-bridge.js",
+    "prototype/web-workbench/README.md",
+    "tests/test_web_workbench_static.py",
+    "docs/DESKTOP_STACK_SPIKE.md"
   ],
   "next_actions": [
-    "connect-analysis-json-to-desktop-timeline-technology-spike",
+    "wrap-web-workbench-in-minimal-electron-validation-shell",
+    "connect-desktop-bridge-to-packaged-python-analysis-process",
+    "run-packaged-workbench-validation-on-windows-macos-linux",
     "reduce-chord-and-section-baseline-errors-or-compare-production-analysis-libraries",
     "run-audio-analysis-spike-on-windows-macos-linux",
     "verify-synthesizer-v-studio-pro-1.9.0-adapter-capabilities",
