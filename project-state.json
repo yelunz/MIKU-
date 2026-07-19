@@ -4,8 +4,10 @@
   "working_title": true,
   "phase": "product-definition",
   "status": "planning",
-  "last_updated": "2026-07-20T00:49:54+08:00",
+  "last_updated": "2026-07-20T00:52:52+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
+  "git_branch": "main",
+  "remote_sync_status": "synced",
   "confirmed_capabilities": [
     "import-local-audio",
     "analyze-and-visualize-audio",
