@@ -2,9 +2,9 @@
   "schema_version": 1,
   "project_name": "Miku 歌姬解放计划",
   "working_title": true,
-  "phase": "product-definition",
-  "status": "planning",
-  "last_updated": "2026-07-20T01:43:59+08:00",
+  "phase": "p1-audio-workbench-technical-validation",
+  "status": "in-progress",
+  "last_updated": "2026-07-20T02:07:46+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "synced",
@@ -53,6 +53,30 @@
       "sample_rate_hz": 48000
     }
   },
+  "audio_analysis_baseline": {
+    "implementation": "tools/analyze_audio.py",
+    "runtime": "python-standard-library-only",
+    "schema_version": "0.1.0",
+    "fixture_result": {
+      "tempo_bpm": 119.993,
+      "first_beat_seconds": 0.97,
+      "key_top_candidate": "C major",
+      "required_section_boundaries_detected": true,
+      "extra_section_boundaries_present": true,
+      "chord_top1_strict_midpoint_weighted_accuracy": 0.875,
+      "chord_acceptance_threshold": 0.9,
+      "chord_acceptance_passed": false,
+      "deterministic_json_sha256": "50A649AE46B4EB79A4EB0D8646C60DCDEF90905B8458800DA75B7CAC330DCE31"
+    }
+  },
+  "interaction_prototypes": [
+    {
+      "id": "miku-timeline-prototype",
+      "repository_spec": "docs/TIMELINE_PROTOTYPE.md",
+      "local_visualization": "C:/Users/yEluN/.codex/visualizations/2026/07/19/019f7b37-c6cd-7ed0-a19c-779fa2ced9c2/miku-timeline-prototype.html",
+      "status": "interactive-wireframe"
+    }
+  ],
   "confirmed_capabilities": [
     "import-local-audio",
     "analyze-and-visualize-audio",
@@ -74,13 +98,17 @@
     "docs/WORKFLOW.md",
     "fixtures/basic-c-major-120-v1/README.md",
     "fixtures/basic-c-major-120-v1/ground-truth.json",
-    "fixtures/basic-c-major-120-v1/generate.py"
+    "fixtures/basic-c-major-120-v1/generate.py",
+    "tools/analyze_audio.py",
+    "analysis/README.md",
+    "tests/test_audio_analysis.py",
+    "docs/TIMELINE_PROTOTYPE.md"
   ],
   "next_actions": [
-    "run-audio-analysis-spike-with-basic-c-major-120-v1",
+    "connect-analysis-json-to-desktop-timeline-technology-spike",
+    "reduce-chord-and-section-baseline-errors-or-compare-production-analysis-libraries",
+    "run-audio-analysis-spike-on-windows-macos-linux",
     "verify-synthesizer-v-studio-pro-1.9.0-adapter-capabilities",
-    "prepare-interaction-wireframe",
-    "run-cross-platform-audio-analysis-technology-spike",
     "define-openutau-and-synthesizer-v-1.9.0-adapter-capability-matrices",
     "define-vocaloid6-6.13.0-and-legacy-midi-capability-matrix"
   ],

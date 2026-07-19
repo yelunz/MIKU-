@@ -2,7 +2,7 @@
 
 一个面向非专业音乐用户的、本地优先的音频分析与虚拟歌声编排前端。
 
-> 当前状态：产品定义与技术验证阶段，尚无可运行应用。
+> 当前状态：P1 音频工作台技术验证已开始；已有可运行分析 CLI 和交互时间轴原型，尚无可安装桌面应用。
 
 ## 项目要解决的问题
 
@@ -38,6 +38,8 @@
 - [产品定义](docs/PRODUCT_DEFINITION.md)
 - [技术方案](docs/ARCHITECTURE.md)
 - [阶段计划](docs/ROADMAP.md)
+- [第一轮音频分析基线](analysis/README.md)
+- [时间轴交互原型说明](docs/TIMELINE_PROTOTYPE.md)
 - [外部能力调研](docs/RESEARCH_NOTES.md)
 - [测试夹具](fixtures/basic-c-major-120-v1/README.md)
 - [协作与日志规范](docs/WORKFLOW.md)
