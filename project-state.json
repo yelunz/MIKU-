@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "project_name": "Miku 歌姬解放计划",
+  "working_title": true,
+  "phase": "product-definition",
+  "status": "planning",
+  "last_updated": "2026-07-20T00:49:54+08:00",
+  "remote": "https://github.com/yelunz/MIKU-.git",
+  "confirmed_capabilities": [
+    "import-local-audio",
+    "analyze-and-visualize-audio",
+    "select-time-range",
+    "assign-lyrics-to-selection",
+    "generate-or-assist-vocal-arrangement",
+    "edit-and-regenerate-results",
+    "export-through-engine-adapters",
+    "local-project-persistence",
+    "per-work-round-logs"
+  ],
+  "current_deliverables": [
+    "README.md",
+    "AGENTS.md",
+    "docs/PRODUCT_DEFINITION.md",
+    "docs/ARCHITECTURE.md",
+    "docs/ROADMAP.md",
+    "docs/RESEARCH_NOTES.md",
+    "docs/WORKFLOW.md"
+  ],
+  "next_actions": [
+    "confirm-first-target-operating-system",
+    "confirm-first-target-vocal-editor",
+    "confirm-first-input-audio-mode",
+    "prepare-interaction-wireframe",
+    "run-audio-analysis-technology-spike"
+  ],
+  "open_decisions": [
+    "first-target-vocal-editor",
+    "first-supported-lyric-language",
+    "desktop-application-stack",
+    "minimum-analysis-layers-for-mvp",
+    "working-title-and-brand-review"
+  ]
+}
