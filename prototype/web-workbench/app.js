@@ -1,29 +1,44 @@
 "use strict";
 
 (() => {
-  const PROJECT_SCHEMA = "miku-workbench-project/0.1.0";
+  // 项目与分析 schema。当内部数据结构发生破坏性变化时，PROJECT_SCHEMA 递增；
+  // 旧版本必须能在导入时显式迁移，避免静默覆盖用户工作。
+  const PROJECT_SCHEMA = "miku-workbench-project/0.2.0";
+  const PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0";
   const ANALYSIS_SCHEMA = "0.1.0";
+  const PPQ = 960;
+  // sample 是音频定位的权威基准。当 sample 与 tick 出现数值漂移时以 sample 为准。
+  const ANCHOR_TOLERANCE_SECONDS = 0.005;
+
   const bridge = globalThis.MikuDesktopBridge;
   const state = {
     analysis: null,
     duration: 0,
+    sampleRateHz: 48000,
+    tempoMap: null,
+    anchors: new Map(),
+    lyrics: [],
+    rests: [],
     audioUrl: null,
     audioFileName: null,
     audioDuration: null,
     audioSha256: null,
     audioHashSkipped: false,
     selection: { start: 0, end: 0 },
-    lyrics: [],
     chordOverrides: {},
     selectedChordKey: null,
     selectedLyricId: null,
+    selectedRestId: null,
     zoom: 16,
     snapMode: "half-beat",
     continuousLyrics: true,
     layers: { waveform: true, energy: true, beats: true, sections: true, chords: true },
     dragging: null,
     handleDragging: null,
+    edgeDragging: null,
     nextLyricId: 1,
+    nextRestId: 1,
+    nextAnchorId: 1,
   };
 
   const byId = id => document.getElementById(id);
@@ -64,6 +79,10 @@
     saveLyricButton: byId("save-lyric-button"),
     cancelLyricEditButton: byId("cancel-lyric-edit-button"),
     deleteLyricButton: byId("delete-lyric-button"),
+    convertRestButton: byId("convert-rest-button"),
+    deleteRestButton: byId("delete-rest-button"),
+    restInspector: byId("rest-inspector"),
+    restDetail: byId("rest-detail"),
     chordInspector: byId("chord-inspector"),
     chordDetail: byId("chord-detail"),
     chordLabel: byId("chord-label"),
@@ -93,6 +112,126 @@
     return `${String(minutes).padStart(2, "0")}:${remainder.toFixed(3).padStart(6, "0")}`;
   }
 
+  // ---- 时间模型：TempoMap + Anchor ---------------------------------------------
+
+  function buildTempoMap(analysis) {
+    const sampleRateHz = finiteNumber(
+      analysis && analysis.source_audio && analysis.source_audio.sample_rate_hz,
+      48000
+    );
+    if (!(sampleRateHz > 0)) throw new Error("分析 JSON 缺少有效的采样率。");
+    const tempo = analysis.analysis.tempo && analysis.analysis.tempo.candidates && analysis.analysis.tempo.candidates[0];
+    if (!tempo || !finiteNumber(tempo.bpm) || tempo.bpm <= 0) throw new Error("分析 JSON 缺少有效的速度候选。");
+    const bpm = finiteNumber(tempo.bpm);
+    const firstBeatSeconds = finiteNumber(tempo.first_beat_seconds);
+    const firstBeatSample = Math.round(firstBeatSeconds * sampleRateHz);
+    const firstBeatTick = 0;
+    const ticksPerSecond = (bpm / 60) * PPQ;
+    const samplesPerTick = sampleRateHz / ticksPerSecond;
+    return {
+      sampleRateHz,
+      ppq: PPQ,
+      bpm,
+      firstBeatSeconds,
+      firstBeatSample,
+      firstBeatTick,
+      ticksPerSecond,
+      samplesPerTick,
+    };
+  }
+
+  function sampleToTick(sample) {
+    const map = state.tempoMap;
+    if (!map) return 0;
+    return Math.round(map.firstBeatTick + ((sample - map.firstBeatSample) / map.sampleRateHz) * map.ticksPerSecond);
+  }
+
+  function tickToSample(tick) {
+    const map = state.tempoMap;
+    if (!map) return 0;
+    return map.firstBeatSample + ((tick - map.firstBeatTick) / map.ticksPerSecond) * map.sampleRateHz;
+  }
+
+  function sampleToSeconds(sample) {
+    return sample / state.sampleRateHz;
+  }
+
+  function secondsToSample(seconds) {
+    return Math.round(seconds * state.sampleRateHz);
+  }
+
+  function createAnchorAtSample(sample) {
+    const safeSample = Math.max(0, Math.min(Math.round(sample), Math.round(state.duration * state.sampleRateHz)));
+    let identifier;
+    do {
+      identifier = `anchor-${state.nextAnchorId++}`;
+    } while (state.anchors.has(identifier));
+    const anchor = { id: identifier, sample: safeSample, tick: sampleToTick(safeSample) };
+    state.anchors.set(identifier, anchor);
+    return anchor;
+  }
+
+  function findAnchorBySample(sample, toleranceSeconds = ANCHOR_TOLERANCE_SECONDS) {
+    const target = Math.round(sample);
+    const toleranceSamples = Math.max(1, Math.round(toleranceSeconds * state.sampleRateHz));
+    let closest = null;
+    let closestDelta = Infinity;
+    for (const anchor of state.anchors.values()) {
+      const delta = Math.abs(anchor.sample - target);
+      if (delta <= toleranceSamples && delta < closestDelta) {
+        closest = anchor;
+        closestDelta = delta;
+      }
+    }
+    return closest;
+  }
+
+  function moveAnchor(anchorId, sample) {
+    const anchor = state.anchors.get(anchorId);
+    if (!anchor) return;
+    const safeSample = Math.max(0, Math.min(Math.round(sample), Math.round(state.duration * state.sampleRateHz)));
+    anchor.sample = safeSample;
+    anchor.tick = sampleToTick(safeSample);
+  }
+
+  function anchorStartSeconds(region) {
+    const anchor = state.anchors.get(region.startAnchorId);
+    return anchor ? sampleToSeconds(anchor.sample) : 0;
+  }
+
+  function anchorEndSeconds(region) {
+    const anchor = state.anchors.get(region.endAnchorId);
+    return anchor ? sampleToSeconds(anchor.sample) : 0;
+  }
+
+  function anchorStartSample(region) {
+    const anchor = state.anchors.get(region.startAnchorId);
+    return anchor ? anchor.sample : 0;
+  }
+
+  function anchorEndSample(region) {
+    const anchor = state.anchors.get(region.endAnchorId);
+    return anchor ? anchor.sample : 0;
+  }
+
+  // 删除未被任何 lyric/rest 引用的 anchor，避免 anchor 表无限增长。
+  function pruneAnchors() {
+    const referenced = new Set();
+    state.lyrics.forEach(region => {
+      referenced.add(region.startAnchorId);
+      referenced.add(region.endAnchorId);
+    });
+    state.rests.forEach(rest => {
+      referenced.add(rest.startAnchorId);
+      referenced.add(rest.endAnchorId);
+    });
+    for (const id of Array.from(state.anchors.keys())) {
+      if (!referenced.has(id)) state.anchors.delete(id);
+    }
+  }
+
+  // ---- 选区与吸附 --------------------------------------------------------------
+
   function topTempoCandidate() {
     return state.analysis && state.analysis.analysis.tempo.candidates[0] || null;
   }
@@ -116,6 +255,8 @@
     const snapped = origin + Math.round((seconds - origin) / interval) * interval;
     return clamp(Number(snapped.toFixed(6)), 0, state.duration);
   }
+
+  // ---- 分析 JSON 校验 ----------------------------------------------------------
 
   function validateAnalysis(candidate) {
     if (!candidate || typeof candidate !== "object") throw new Error("分析 JSON 顶层必须是对象。");
@@ -202,19 +343,27 @@
   function resetEditingState() {
     state.selection = { start: 0, end: 0 };
     state.lyrics = [];
+    state.rests = [];
+    state.anchors.clear();
     state.chordOverrides = {};
     state.selectedChordKey = null;
     state.selectedLyricId = null;
+    state.selectedRestId = null;
     state.nextLyricId = 1;
+    state.nextRestId = 1;
+    state.nextAnchorId = 1;
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
+    elements.restInspector.hidden = true;
     elements.exactData.textContent = "选择和弦或歌词区域后显示。";
   }
 
   function applyAnalysis(analysis, preserveEdits = false) {
     state.analysis = validateAnalysis(analysis);
     state.duration = Number(analysis.source_audio.duration_seconds);
+    state.sampleRateHz = finiteNumber(analysis.source_audio.sample_rate_hz, 48000);
+    state.tempoMap = buildTempoMap(state.analysis);
     if (!preserveEdits) resetEditingState();
     elements.workbench.hidden = false;
     elements.exportProjectButton.disabled = false;
@@ -232,6 +381,8 @@
     renderAll();
     checkAudioAssociation();
   }
+
+  // ---- 渲染辅助 ----------------------------------------------------------------
 
   function timelineWidth() {
     const viewport = Math.max(640, elements.timelineScroll.clientWidth - 145);
@@ -347,49 +498,148 @@
     return Array.isArray(windows) ? windows.find(window => chordKey(window) === state.selectedChordKey) : null;
   }
 
+  // ---- 歌词 / 休止渲染 --------------------------------------------------------
+
   function renderLyrics() {
     clearElement(elements.lyricsLane);
-    if (!state.lyrics.length) {
+    if (!state.lyrics.length && !state.rests.length) {
       elements.lyricsLane.appendChild(elements.lyricsEmpty);
       elements.lyricsEmpty.hidden = false;
       return;
     }
-    const sortedRegions = state.lyrics.slice().sort((a, b) => a.start - b.start);
-    const appendUnassigned = (start, end) => {
-      if (end - start <= 1e-6) return;
+    // 合并 lyrics 与 rests，按 start sample 排序，渲染时按时间顺序处理空段。
+    const combined = [];
+    state.lyrics.forEach(region => combined.push({ kind: "lyric", region }));
+    state.rests.forEach(region => combined.push({ kind: "rest", region }));
+    combined.sort((a, b) => anchorStartSample(a.region) - anchorStartSample(b.region));
+
+    const appendUnassigned = (startSeconds, endSeconds) => {
+      if (endSeconds - startSeconds <= 1e-6) return;
       const gap = document.createElement("span");
-      gap.className = "timeline-block rest-block";
-      gap.textContent = "未分配 / 休止";
-      gap.title = `${start.toFixed(3)}–${end.toFixed(3)} 秒 · 明确留白，不是渲染漏缝`;
-      gap.style.left = percentAt(start);
-      gap.style.right = percentAt(state.duration - end);
+      gap.className = "timeline-block rest-block unassigned-block";
+      gap.textContent = "未分配";
+      gap.title = `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 明确留白，不是渲染漏缝；可选中后转为休止`;
+      gap.style.left = percentAt(startSeconds);
+      gap.style.right = percentAt(state.duration - endSeconds);
+      gap.dataset.unassignedStart = String(startSeconds);
+      gap.dataset.unassignedEnd = String(endSeconds);
+      gap.addEventListener("click", () => {
+        setSelection(Number(gap.dataset.unassignedStart), Number(gap.dataset.unassignedEnd));
+        selectUnassignedGap(Number(gap.dataset.unassignedStart), Number(gap.dataset.unassignedEnd));
+      });
       elements.lyricsLane.appendChild(gap);
     };
-    let cursor = 0;
-    sortedRegions.forEach(region => {
-      appendUnassigned(cursor, region.start);
-      const language = region.language === "ja" ? "日" : "中";
-      const block = makeBlock("lyric-block", `${language} · ${region.text}`, region.start, region.end, `${region.start.toFixed(3)}–${region.end.toFixed(3)} 秒 · 点击编辑`);
-      block.style.removeProperty("width");
-      block.style.right = percentAt(state.duration - region.end);
-      if (state.selectedLyricId === region.id) block.classList.add("selected");
-      block.addEventListener("click", () => editLyric(region.id));
-      elements.lyricsLane.appendChild(block);
-      cursor = Math.max(cursor, region.end);
+
+    let cursorSample = 0;
+    combined.forEach(({ kind, region }) => {
+      const startSample = anchorStartSample(region);
+      const endSample = anchorEndSample(region);
+      const startSeconds = sampleToSeconds(startSample);
+      const endSeconds = sampleToSeconds(endSample);
+      appendUnassigned(sampleToSeconds(cursorSample), startSeconds);
+      if (kind === "lyric") {
+        const language = region.language === "ja" ? "日" : "中";
+        const block = makeBlock("lyric-block", `${language} · ${region.text}`, startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 点击编辑`);
+        block.style.removeProperty("width");
+        block.style.right = percentAt(state.duration - endSeconds);
+        if (state.selectedLyricId === region.id) block.classList.add("selected");
+        block.addEventListener("click", () => editLyric(region.id));
+        elements.lyricsLane.appendChild(block);
+      } else {
+        const block = makeBlock("rest-block explicit-rest", "休止", startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 显式休止；点击编辑`);
+        block.style.removeProperty("width");
+        block.style.right = percentAt(state.duration - endSeconds);
+        if (state.selectedRestId === region.id) block.classList.add("selected");
+        block.addEventListener("click", () => editRest(region.id));
+        elements.lyricsLane.appendChild(block);
+      }
+      cursorSample = Math.max(cursorSample, endSample);
     });
-    appendUnassigned(cursor, state.duration);
+    appendUnassigned(sampleToSeconds(cursorSample), state.duration);
+
+    renderSharedEdges();
+  }
+
+  // 在相邻 lyric/rest 共享 anchor 的位置渲染一个可拖动的共享边手柄。
+  function renderSharedEdges() {
+    const combined = [];
+    state.lyrics.forEach(region => combined.push({ kind: "lyric", region }));
+    state.rests.forEach(region => combined.push({ kind: "rest", region }));
+    combined.sort((a, b) => anchorStartSample(a.region) - anchorStartSample(b.region));
+    for (let index = 1; index < combined.length; index += 1) {
+      const previous = combined[index - 1].region;
+      const current = combined[index].region;
+      if (anchorEndSample(previous) === anchorStartSample(current)) {
+        const anchorId = previous.endAnchorId;
+        const seconds = sampleToSeconds(anchorEndSample(previous));
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = "shared-edge-handle";
+        handle.title = `共享边界 ${seconds.toFixed(3)} 秒 · 拖动会同时移动两侧区域`;
+        handle.style.left = percentAt(seconds);
+        handle.dataset.anchorId = anchorId;
+        handle.addEventListener("pointerdown", event => beginEdgeDrag(event, anchorId));
+        handle.addEventListener("keydown", event => nudgeEdge(event, anchorId));
+        elements.lyricsLane.appendChild(handle);
+      }
+    }
+  }
+
+  function selectUnassignedGap(start, end) {
+    state.selectedLyricId = null;
+    state.selectedRestId = null;
+    elements.restInspector.hidden = false;
+    elements.restDetail.textContent = `未分配空段 ${start.toFixed(3)}–${end.toFixed(3)} 秒；可以转为显式休止，或保留作为留白。`;
+    elements.convertRestButton.hidden = false;
+    elements.deleteRestButton.hidden = true;
+    elements.convertRestButton.onclick = () => convertSelectionToRest();
+    hideLyricEditor();
+    hideChordInspector();
+    renderLyrics();
   }
 
   function editLyric(id) {
     const region = state.lyrics.find(item => item.id === id);
     if (!region) return;
     state.selectedLyricId = id;
+    state.selectedRestId = null;
     elements.lyricLanguage.value = region.language;
     elements.lyricText.value = region.text;
     elements.cancelLyricEditButton.hidden = false;
     elements.deleteLyricButton.hidden = false;
-    setSelection(region.start, region.end);
-    elements.exactData.textContent = JSON.stringify(region, null, 2);
+    setSelection(anchorStartSeconds(region), anchorEndSeconds(region));
+    elements.exactData.textContent = JSON.stringify({
+      id: region.id,
+      language: region.language,
+      text: region.text,
+      start_anchor: state.anchors.get(region.startAnchorId),
+      end_anchor: state.anchors.get(region.endAnchorId),
+    }, null, 2);
+    hideRestInspector();
+    renderLyrics();
+  }
+
+  function editRest(id) {
+    const rest = state.rests.find(item => item.id === id);
+    if (!rest) return;
+    state.selectedRestId = id;
+    state.selectedLyricId = null;
+    elements.restInspector.hidden = false;
+    elements.deleteRestButton.hidden = false;
+    elements.convertRestButton.hidden = true;
+    const startSeconds = anchorStartSeconds(rest);
+    const endSeconds = anchorEndSeconds(rest);
+    elements.restDetail.textContent = `显式休止 ${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒；删除后会恢复为未分配空段。`;
+    elements.deleteRestButton.onclick = () => deleteRest(rest.id);
+    setSelection(startSeconds, endSeconds);
+    elements.exactData.textContent = JSON.stringify({
+      id: rest.id,
+      kind: rest.kind,
+      start_anchor: state.anchors.get(rest.startAnchorId),
+      end_anchor: state.anchors.get(rest.endAnchorId),
+    }, null, 2);
+    hideLyricEditor();
+    hideChordInspector();
     renderLyrics();
   }
 
@@ -399,6 +649,20 @@
     elements.deleteLyricButton.hidden = true;
     if (clearText) elements.lyricText.value = "";
     renderLyrics();
+  }
+
+  function hideLyricEditor() {
+    elements.cancelLyricEditButton.hidden = true;
+    elements.deleteLyricButton.hidden = true;
+    elements.lyricText.value = "";
+  }
+
+  function hideRestInspector() {
+    elements.restInspector.hidden = true;
+  }
+
+  function hideChordInspector() {
+    elements.chordInspector.hidden = true;
   }
 
   function setSelection(start, end, announce = true, useSnap = false, bypassSnap = false) {
@@ -549,6 +813,8 @@
     elements.playButton.textContent = elements.audio.paused ? "播放" : "暂停";
   }
 
+  // ---- 音频关联 ----------------------------------------------------------------
+
   async function handleAudioFile(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".wav")) {
@@ -620,11 +886,18 @@
     }
   }
 
+  // ---- 歌词区域 / 休止创建与编辑 ----------------------------------------------
+
+  // 把当前选区保存为歌词区域。在连续模式下，相邻歌词共享 anchor：
+  //   previous.endAnchorId === new.startAnchorId
+  //   new.endAnchorId === next.startAnchorId
+  // 这是数据层的边界共享，移动 anchor 会同时改变两侧，从根上消除漏缝。
   function saveLyricRegion() {
-    let { start, end } = state.selection;
+    if (!state.analysis) return;
+    let { start: startSeconds, end: endSeconds } = state.selection;
     const text = elements.lyricText.value.trim();
     const language = elements.lyricLanguage.value;
-    if (!(end > start)) {
+    if (!(endSeconds > startSeconds)) {
       setStatus("请先建立有效选区；结束时间必须大于开始时间。", "error");
       return;
     }
@@ -636,52 +909,244 @@
       setStatus("首版只支持中文和日文歌词。", "error");
       return;
     }
+
     const existing = state.selectedLyricId ? state.lyrics.find(region => region.id === state.selectedLyricId) : null;
-    const otherRegions = state.lyrics.filter(region => !existing || region.id !== existing.id).sort((a, b) => a.start - b.start);
+    const otherRegions = state.lyrics.filter(region => !existing || region.id !== existing.id).sort((a, b) => anchorStartSample(a) - anchorStartSample(b));
     const tolerance = Math.max(0.08, snapIntervalSeconds() * 1.05);
-    let linkedPrevious = null;
-    let linkedNext = null;
-    if (existing && state.continuousLyrics) {
-      linkedPrevious = otherRegions.filter(region => region.end <= existing.start + tolerance).at(-1) || null;
-      linkedNext = otherRegions.find(region => region.start >= existing.end - tolerance) || null;
-      if (linkedPrevious && Math.abs(linkedPrevious.end - existing.start) > tolerance) linkedPrevious = null;
-      if (linkedNext && Math.abs(linkedNext.start - existing.end) > tolerance) linkedNext = null;
-    } else if (state.continuousLyrics) {
-      const previous = otherRegions.filter(region => region.end <= start + tolerance).at(-1) || null;
-      const next = otherRegions.find(region => region.start >= end - tolerance) || null;
-      if (previous && Math.abs(previous.end - start) <= tolerance) start = previous.end;
-      if (next && Math.abs(next.start - end) <= tolerance) end = next.start;
+
+    // 1) 编辑现有歌词：保留原 anchor，只移动它们到新位置；
+    //    若新位置与相邻区域产生共享边界，复用相邻 anchor。
+    if (existing) {
+      let linkedPrevious = null;
+      let linkedNext = null;
+      if (state.continuousLyrics) {
+        linkedPrevious = otherRegions.filter(region => Math.abs(anchorEndSeconds(region) - anchorStartSeconds(existing)) <= tolerance).at(-1) || null;
+        linkedNext = otherRegions.find(region => Math.abs(anchorStartSeconds(region) - anchorEndSeconds(existing)) <= tolerance) || null;
+      }
+      // 检查不与未参与共享的区域重叠
+      const ignoredIds = new Set([existing.id, linkedPrevious && linkedPrevious.id, linkedNext && linkedNext.id].filter(Boolean));
+      const overlap = state.lyrics.find(region => !ignoredIds.has(region.id) && startSeconds < anchorEndSeconds(region) - 1e-6 && endSeconds > anchorStartSeconds(region) + 1e-6);
+      if (overlap) {
+        setStatus("歌词区域与已有区域重叠；请调整边界，或编辑已有区域。", "error");
+        return;
+      }
+      if (linkedPrevious && startSeconds <= anchorStartSeconds(linkedPrevious)) {
+        setStatus("边界调整会吞掉相邻歌词区域，请缩小移动范围。", "error");
+        return;
+      }
+      if (linkedNext && endSeconds >= anchorEndSeconds(linkedNext)) {
+        setStatus("边界调整会吞掉相邻歌词区域，请缩小移动范围。", "error");
+        return;
+      }
+      // 复用或创建 start anchor
+      let startAnchor;
+      if (linkedPrevious) {
+        startAnchor = state.anchors.get(linkedPrevious.endAnchorId);
+      } else {
+        startAnchor = findAnchorBySample(secondsToSample(startSeconds)) || createAnchorAtSample(secondsToSample(startSeconds));
+      }
+      // 复用或创建 end anchor
+      let endAnchor;
+      if (linkedNext) {
+        endAnchor = state.anchors.get(linkedNext.startAnchorId);
+      } else {
+        endAnchor = findAnchorBySample(secondsToSample(endSeconds)) || createAnchorAtSample(secondsToSample(endSeconds));
+      }
+      moveAnchor(startAnchor.id, secondsToSample(startSeconds));
+      moveAnchor(endAnchor.id, secondsToSample(endSeconds));
+      existing.startAnchorId = startAnchor.id;
+      existing.endAnchorId = endAnchor.id;
+      existing.language = language;
+      existing.text = text;
+      pruneAnchors();
+      setStatus("已更新歌词区域；与相邻区域共享的边界会一起移动。", "success");
+      endLyricEdit(true);
+      return;
     }
-    if (!(end > start)) {
+
+    // 2) 新建歌词区域
+    if (state.continuousLyrics) {
+      const previous = otherRegions.filter(region => Math.abs(anchorEndSeconds(region) - startSeconds) <= tolerance).at(-1) || null;
+      const next = otherRegions.find(region => Math.abs(anchorStartSeconds(region) - endSeconds) <= tolerance) || null;
+      if (previous && Math.abs(anchorEndSeconds(previous) - startSeconds) <= tolerance) startSeconds = anchorEndSeconds(previous);
+      if (next && Math.abs(anchorStartSeconds(next) - endSeconds) <= tolerance) endSeconds = anchorStartSeconds(next);
+    }
+    if (!(endSeconds > startSeconds)) {
       setStatus("吸附后的歌词区域没有有效长度，请调整边界或关闭吸附。", "error");
       return;
     }
-    if (linkedPrevious && start <= linkedPrevious.start || linkedNext && end >= linkedNext.end) {
-      setStatus("边界调整会吞掉相邻歌词区域，请缩小移动范围。", "error");
-      return;
-    }
-    const ignoredIds = new Set([existing && existing.id, linkedPrevious && linkedPrevious.id, linkedNext && linkedNext.id].filter(Boolean));
-    const overlap = state.lyrics.find(region => !ignoredIds.has(region.id) && start < region.end - 1e-6 && end > region.start + 1e-6);
+    const ignoredIds = new Set();
+    const overlap = state.lyrics.find(region => !ignoredIds.has(region.id) && startSeconds < anchorEndSeconds(region) - 1e-6 && endSeconds > anchorStartSeconds(region) + 1e-6);
     if (overlap) {
       setStatus("歌词区域与已有区域重叠；请调整边界，或编辑已有区域。", "error");
       return;
     }
-    setSelection(start, end, false);
-    if (existing) {
-      Object.assign(existing, { start, end, language, text });
-      if (linkedPrevious) linkedPrevious.end = start;
-      if (linkedNext) linkedNext.start = end;
-      setStatus("已更新歌词区域。", "success");
-    } else {
-      let identifier;
-      do {
-        identifier = `lyric-${state.nextLyricId++}`;
-      } while (state.lyrics.some(region => region.id === identifier));
-      state.lyrics.push({ id: identifier, start, end, language, text });
-      setStatus("已建立歌词区域；尚未生成演唱音符。", "success");
+
+    let startAnchor;
+    let endAnchor;
+    if (state.continuousLyrics) {
+      const previous = otherRegions.filter(region => Math.abs(anchorEndSeconds(region) - startSeconds) <= tolerance).at(-1) || null;
+      const next = otherRegions.find(region => Math.abs(anchorStartSeconds(region) - endSeconds) <= tolerance) || null;
+      if (previous) startAnchor = state.anchors.get(previous.endAnchorId);
+      if (next) endAnchor = state.anchors.get(next.startAnchorId);
     }
+    if (!startAnchor) startAnchor = findAnchorBySample(secondsToSample(startSeconds)) || createAnchorAtSample(secondsToSample(startSeconds));
+    if (!endAnchor) endAnchor = findAnchorBySample(secondsToSample(endSeconds)) || createAnchorAtSample(secondsToSample(endSeconds));
+
+    let identifier;
+    do {
+      identifier = `lyric-${state.nextLyricId++}`;
+    } while (state.lyrics.some(region => region.id === identifier));
+    state.lyrics.push({
+      id: identifier,
+      startAnchorId: startAnchor.id,
+      endAnchorId: endAnchor.id,
+      language,
+      text,
+    });
+    setStatus("已建立歌词区域；与相邻区域共享的边界会一起移动。", "success");
     endLyricEdit(true);
   }
+
+  function deleteLyric() {
+    if (!state.selectedLyricId) return;
+    state.lyrics = state.lyrics.filter(region => region.id !== state.selectedLyricId);
+    pruneAnchors();
+    endLyricEdit(true);
+    setStatus("歌词区域已删除；引用的 anchor 已清理。", "success");
+  }
+
+  function convertSelectionToRest() {
+    if (!state.analysis) return;
+    const { start, end } = state.selection;
+    if (!(end > start)) {
+      setStatus("请先选择一段未分配区域再转为休止。", "error");
+      return;
+    }
+    // 与现有 lyrics/rests 不能重叠
+    const overlapLyric = state.lyrics.find(region => start < anchorEndSeconds(region) - 1e-6 && end > anchorStartSeconds(region) + 1e-6);
+    if (overlapLyric) {
+      setStatus("休止不能与已有歌词区域重叠。", "error");
+      return;
+    }
+    const overlapRest = state.rests.find(rest => start < anchorEndSeconds(rest) - 1e-6 && end > anchorStartSeconds(rest) + 1e-6);
+    if (overlapRest) {
+      setStatus("休止不能与已有休止重叠。", "error");
+      return;
+    }
+    // 复用相邻 anchor（与歌词区域相同规则）
+    const tolerance = Math.max(0.08, snapIntervalSeconds() * 1.05);
+    const previousLyric = state.lyrics.filter(region => Math.abs(anchorEndSeconds(region) - start) <= tolerance).at(-1) || null;
+    const previousRest = state.rests.filter(rest => Math.abs(anchorEndSeconds(rest) - start) <= tolerance).at(-1) || null;
+    const nextLyric = state.lyrics.find(region => Math.abs(anchorStartSeconds(region) - end) <= tolerance) || null;
+    const nextRest = state.rests.find(rest => Math.abs(anchorStartSeconds(rest) - end) <= tolerance) || null;
+    let startAnchor;
+    let endAnchor;
+    if (previousLyric) startAnchor = state.anchors.get(previousLyric.endAnchorId);
+    else if (previousRest) startAnchor = state.anchors.get(previousRest.endAnchorId);
+    if (nextLyric) endAnchor = state.anchors.get(nextLyric.startAnchorId);
+    else if (nextRest) endAnchor = state.anchors.get(nextRest.startAnchorId);
+    if (!startAnchor) startAnchor = findAnchorBySample(secondsToSample(start)) || createAnchorAtSample(secondsToSample(start));
+    if (!endAnchor) endAnchor = findAnchorBySample(secondsToSample(end)) || createAnchorAtSample(secondsToSample(end));
+    let identifier;
+    do {
+      identifier = `rest-${state.nextRestId++}`;
+    } while (state.rests.some(rest => rest.id === identifier));
+    state.rests.push({
+      id: identifier,
+      startAnchorId: startAnchor.id,
+      endAnchorId: endAnchor.id,
+      kind: "rest",
+    });
+    setStatus(`已建立显式休止 ${start.toFixed(3)}–${end.toFixed(3)} 秒。`, "success");
+    editRest(identifier);
+  }
+
+  function deleteRest(id) {
+    state.rests = state.rests.filter(rest => rest.id !== id);
+    pruneAnchors();
+    hideRestInspector();
+    renderLyrics();
+    setStatus("显式休止已删除，原区域恢复为未分配空段。", "success");
+  }
+
+  // ---- 共享边手柄：拖动 anchor 同时改变两侧 region ----------------------------
+
+  function beginEdgeDrag(event, anchorId) {
+    if (!state.analysis || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.edgeDragging = { anchorId, previousSample: state.anchors.get(anchorId) ? state.anchors.get(anchorId).sample : 0 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveEdge(event) {
+    if (!state.edgeDragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const time = snapTime(timeFromPointer(event), event.altKey);
+    const newSample = secondsToSample(time);
+    // 不允许跨越两侧 region 的另一端 anchor
+    const consumers = [...state.lyrics, ...state.rests].filter(region => region.startAnchorId === state.edgeDragging.anchorId || region.endAnchorId === state.edgeDragging.anchorId);
+    let minSample = 0;
+    let maxSample = Math.round(state.duration * state.sampleRateHz);
+    consumers.forEach(region => {
+      if (region.startAnchorId === state.edgeDragging.anchorId) {
+        const endSample = anchorEndSample(region);
+        if (endSample < maxSample) maxSample = endSample;
+      }
+      if (region.endAnchorId === state.edgeDragging.anchorId) {
+        const startSample = anchorStartSample(region);
+        if (startSample > minSample) minSample = startSample;
+      }
+    });
+    const minimum = event.altKey ? 1 : Math.max(1, Math.round((snapIntervalSeconds() || 0.001) * state.sampleRateHz));
+    const clamped = Math.max(minSample + minimum, Math.min(maxSample - minimum, newSample));
+    moveAnchor(state.edgeDragging.anchorId, clamped);
+    // 同步选区到正在编辑的 region（如果有）
+    if (state.selectedLyricId) {
+      const region = state.lyrics.find(item => item.id === state.selectedLyricId);
+      if (region) setSelection(anchorStartSeconds(region), anchorEndSeconds(region), false);
+    } else if (state.selectedRestId) {
+      const rest = state.rests.find(item => item.id === state.selectedRestId);
+      if (rest) setSelection(anchorStartSeconds(rest), anchorEndSeconds(rest), false);
+    }
+    renderLyrics();
+  }
+
+  function endEdgeDrag(event) {
+    if (!state.edgeDragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const anchorId = state.edgeDragging.anchorId;
+    state.edgeDragging = null;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch (error) { /* pointer already released */ }
+    const anchor = state.anchors.get(anchorId);
+    if (anchor) setStatus(`共享边界已移动到 ${sampleToSeconds(anchor.sample).toFixed(3)} 秒。`, "success");
+  }
+
+  function cancelEdgeDrag() {
+    if (!state.edgeDragging) return;
+    const previous = state.edgeDragging.previousSample;
+    moveAnchor(state.edgeDragging.anchorId, previous);
+    state.edgeDragging = null;
+    renderLyrics();
+    setStatus("系统取消了共享边移动，已恢复原边界。", "success");
+  }
+
+  function nudgeEdge(event, anchorId) {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const delta = (event.key === "ArrowRight" ? 1 : -1) * (snapIntervalSeconds() || 0.01);
+    const anchor = state.anchors.get(anchorId);
+    if (!anchor) return;
+    moveAnchor(anchorId, anchor.sample + secondsToSample(delta));
+    renderLyrics();
+    setStatus(`共享边界已微调到 ${sampleToSeconds(anchor.sample).toFixed(3)} 秒。`, "success");
+  }
+
+  // ---- 和弦修正 ----------------------------------------------------------------
 
   function saveChordOverride() {
     const window = selectedChordWindow();
@@ -711,6 +1176,16 @@
     selectChord(window);
   }
 
+  // ---- 项目导入 / 导出 --------------------------------------------------------
+
+  function serializeAnchors() {
+    return Array.from(state.anchors.values()).map(anchor => ({
+      id: anchor.id,
+      sample: anchor.sample,
+      tick: anchor.tick,
+    }));
+  }
+
   function exportProject() {
     if (!state.analysis) return;
     const project = {
@@ -722,9 +1197,30 @@
         relink_required_after_import: true,
       },
       analysis: state.analysis,
+      tempo_map: {
+        sample_rate_hz: state.tempoMap.sampleRateHz,
+        ppq: state.tempoMap.ppq,
+        bpm: state.tempoMap.bpm,
+        first_beat_seconds: state.tempoMap.firstBeatSeconds,
+        first_beat_sample: state.tempoMap.firstBeatSample,
+        first_beat_tick: state.tempoMap.firstBeatTick,
+      },
+      anchors: serializeAnchors(),
       editing: {
         selection: state.selection,
-        lyrics: state.lyrics,
+        lyrics: state.lyrics.map(region => ({
+          id: region.id,
+          start_anchor_id: region.startAnchorId,
+          end_anchor_id: region.endAnchorId,
+          language: region.language,
+          text: region.text,
+        })),
+        rests: state.rests.map(rest => ({
+          id: rest.id,
+          start_anchor_id: rest.startAnchorId,
+          end_anchor_id: rest.endAnchorId,
+          kind: rest.kind,
+        })),
         chord_overrides: state.chordOverrides,
         preferences: { snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics },
       },
@@ -733,31 +1229,152 @@
     setStatus("项目已导出。音频本体未写入项目，请在重新打开后手动关联。", "success");
   }
 
-  async function importProject(file) {
-    const candidate = await readJsonFile(file);
-    if (candidate.schema_version !== PROJECT_SCHEMA) throw new Error(`不支持的项目版本：${String(candidate.schema_version || "缺失")}。`);
-    const analysis = validateAnalysis(candidate.analysis);
-    const editing = candidate.editing || {};
+  function importAnchorsAndRegions(project, analysis) {
+    // 重建 TempoMap 以便校验 anchor.tick 是否与 sample 一致；不一致时以 sample 为准。
+    const tempoMap = buildTempoMap(analysis);
+    state.tempoMap = tempoMap;
+    state.sampleRateHz = tempoMap.sampleRateHz;
+
+    const anchors = Array.isArray(project.anchors) ? project.anchors : [];
+    state.anchors.clear();
+    let maxAnchorNumber = 0;
+    anchors.forEach(entry => {
+      if (!entry || typeof entry.id !== "string" || !entry.id) throw new Error(`anchor 条目缺少 id。`);
+      if (state.anchors.has(entry.id)) throw new Error(`anchor ID 重复：${entry.id}。`);
+      const sample = Math.max(0, Math.min(Math.round(finiteNumber(entry.sample)), Math.round(state.duration * state.sampleRateHz)));
+      const anchor = { id: entry.id, sample, tick: sampleToTick(sample) };
+      // 写入的 tick 与重算的 tick 不一致时以 sample 为权威；只记录不抛错。
+      state.anchors.set(entry.id, anchor);
+      const match = /^anchor-(\d+)$/.exec(entry.id);
+      if (match) maxAnchorNumber = Math.max(maxAnchorNumber, Number(match[1]));
+    });
+    state.nextAnchorId = Math.max(state.nextAnchorId, maxAnchorNumber + 1);
+
+    const editing = project.editing || {};
     const seenLyricIds = new Set();
     let maximumLyricNumber = 0;
     const lyrics = Array.isArray(editing.lyrics) ? editing.lyrics.map((region, index) => {
       if (!region || typeof region !== "object") throw new Error(`歌词区域 ${index + 1} 无效。`);
       if (!new Set(["zh", "ja"]).has(region.language)) throw new Error(`歌词区域 ${index + 1} 使用不支持的语言；首版只接受 zh/ja。`);
-      const language = region.language;
-      const start = clamp(finiteNumber(region.start), 0, analysis.source_audio.duration_seconds);
-      const end = clamp(finiteNumber(region.end), 0, analysis.source_audio.duration_seconds);
-      if (!(end > start) || !String(region.text || "").trim()) throw new Error(`歌词区域 ${index + 1} 的时间或文本无效。`);
+      const startAnchorId = String(region.start_anchor_id || "");
+      const endAnchorId = String(region.end_anchor_id || "");
+      if (!state.anchors.has(startAnchorId) || !state.anchors.has(endAnchorId)) {
+        throw new Error(`歌词区域 ${index + 1} 引用了不存在的 anchor。`);
+      }
+      if (startAnchorId === endAnchorId) throw new Error(`歌词区域 ${index + 1} 的起止 anchor 不能相同。`);
+      if (!String(region.text || "").trim()) throw new Error(`歌词区域 ${index + 1} 的文本为空。`);
       const id = String(region.id || `lyric-${index + 1}`);
       if (seenLyricIds.has(id)) throw new Error(`歌词区域 ID 重复：${id}。`);
       seenLyricIds.add(id);
       const match = /^lyric-(\d+)$/.exec(id);
       if (match) maximumLyricNumber = Math.max(maximumLyricNumber, Number(match[1]));
-      return { id, start, end, language, text: String(region.text).trim() };
+      return {
+        id,
+        startAnchorId,
+        endAnchorId,
+        language: region.language,
+        text: String(region.text).trim(),
+      };
     }) : [];
-    const orderedLyrics = lyrics.slice().sort((left, right) => left.start - right.start);
+    state.lyrics = lyrics;
+    state.nextLyricId = Math.max(1, maximumLyricNumber + 1);
+
+    const seenRestIds = new Set();
+    let maximumRestNumber = 0;
+    const rests = Array.isArray(editing.rests) ? editing.rests.map((rest, index) => {
+      if (!rest || typeof rest !== "object") throw new Error(`休止 ${index + 1} 无效。`);
+      if (rest.kind !== "rest") throw new Error(`休止 ${index + 1} 的 kind 不被支持；首版只接受 rest。`);
+      const startAnchorId = String(rest.start_anchor_id || "");
+      const endAnchorId = String(rest.end_anchor_id || "");
+      if (!state.anchors.has(startAnchorId) || !state.anchors.has(endAnchorId)) {
+        throw new Error(`休止 ${index + 1} 引用了不存在的 anchor。`);
+      }
+      if (startAnchorId === endAnchorId) throw new Error(`休止 ${index + 1} 的起止 anchor 不能相同。`);
+      const id = String(rest.id || `rest-${index + 1}`);
+      if (seenRestIds.has(id)) throw new Error(`休止 ID 重复：${id}。`);
+      seenRestIds.add(id);
+      const match = /^rest-(\d+)$/.exec(id);
+      if (match) maximumRestNumber = Math.max(maximumRestNumber, Number(match[1]));
+      return { id, startAnchorId, endAnchorId, kind: "rest" };
+    }) : [];
+    state.rests = rests;
+    state.nextRestId = Math.max(1, maximumRestNumber + 1);
+
+    // 同一主唱轨上的歌词区域不能重叠；和声请使用独立声部轨。
+    const orderedLyrics = lyrics.slice().sort((a, b) => anchorStartSample(a) - anchorStartSample(b));
     for (let index = 1; index < orderedLyrics.length; index += 1) {
-      if (orderedLyrics[index].start < orderedLyrics[index - 1].end - 1e-6) throw new Error("同一主唱轨上的歌词区域不能重叠；和声请使用独立声部轨。");
+      if (anchorStartSample(orderedLyrics[index]) < anchorEndSample(orderedLyrics[index - 1]) - 1) {
+        throw new Error("同一主唱轨上的歌词区域不能重叠；和声请使用独立声部轨。");
+      }
     }
+    // 休止也不能与歌词或其他休止重叠
+    const allRegions = [...lyrics, ...rests];
+    for (let outer = 0; outer < allRegions.length; outer += 1) {
+      for (let inner = outer + 1; inner < allRegions.length; inner += 1) {
+        const a = allRegions[outer];
+        const b = allRegions[inner];
+        const overlap = anchorStartSample(a) < anchorEndSample(b) - 1 && anchorEndSample(a) > anchorStartSample(b) + 1;
+        if (overlap) throw new Error("歌词或休止区域之间存在重叠。");
+      }
+    }
+  }
+
+  // 把 0.1.0 项目的秒数边界迁移到 0.2.0 的 anchor 表。
+  // 相邻歌词（previous.end ≈ next.start within tolerance）共享同一个 anchor。
+  function migrateLegacyProject(project, analysis) {
+    const editing = project.editing || {};
+    const legacyLyrics = Array.isArray(editing.lyrics) ? editing.lyrics : [];
+    const sampleRateHz = finiteNumber(analysis.source_audio.sample_rate_hz, 48000);
+    state.sampleRateHz = sampleRateHz;
+    state.tempoMap = buildTempoMap(analysis);
+
+    const tolerance = 0.005;
+    const sortedLegacy = legacyLyrics
+      .map((region, index) => ({
+        id: String(region.id || `lyric-${index + 1}`),
+        language: region.language,
+        text: String(region.text || "").trim(),
+        startSeconds: clamp(finiteNumber(region.start), 0, analysis.source_audio.duration_seconds),
+        endSeconds: clamp(finiteNumber(region.end), 0, analysis.source_audio.duration_seconds),
+      }))
+      .filter(region => region.endSeconds > region.startSeconds && region.text)
+      .sort((a, b) => a.startSeconds - b.startSeconds);
+
+    state.anchors.clear();
+    state.lyrics = [];
+    state.rests = [];
+    state.nextAnchorId = 1;
+    state.nextLyricId = 1;
+    state.nextRestId = 1;
+
+    let previousEndAnchorId = null;
+    sortedLegacy.forEach((legacy, index) => {
+      let startAnchorId;
+      if (previousEndAnchorId) {
+        const previousEnd = sampleToSeconds(state.anchors.get(previousEndAnchorId).sample);
+        if (Math.abs(previousEnd - legacy.startSeconds) <= tolerance) {
+          startAnchorId = previousEndAnchorId;
+        }
+      }
+      if (!startAnchorId) {
+        const existing = findAnchorBySample(secondsToSample(legacy.startSeconds));
+        const anchor = existing || createAnchorAtSample(secondsToSample(legacy.startSeconds));
+        startAnchorId = anchor.id;
+      }
+      const existingEnd = findAnchorBySample(secondsToSample(legacy.endSeconds));
+      const endAnchor = existingEnd || createAnchorAtSample(secondsToSample(legacy.endSeconds));
+      state.lyrics.push({
+        id: legacy.id,
+        startAnchorId,
+        endAnchorId: endAnchor.id,
+        language: legacy.language,
+        text: legacy.text,
+      });
+      previousEndAnchorId = endAnchor.id;
+      const match = /^lyric-(\d+)$/.exec(legacy.id);
+      if (match) state.nextLyricId = Math.max(state.nextLyricId, Number(match[1]) + 1);
+    });
+
     const rawOverrides = editing.chord_overrides === undefined ? {} : editing.chord_overrides;
     if (!rawOverrides || typeof rawOverrides !== "object" || Array.isArray(rawOverrides)) throw new Error("和弦修正层必须是对象。");
     const validChordKeys = new Set(analysis.analysis.chords.windows.map(window => chordKey(window)));
@@ -771,22 +1388,50 @@
       }
       overrides[key] = { ...override, label: override.label.trim() };
     });
-    releaseAudioUrl();
-    applyAnalysis(analysis, false);
-    state.lyrics = lyrics;
     state.chordOverrides = overrides;
-    state.nextLyricId = Math.max(1, maximumLyricNumber + 1);
+
     const preferences = editing.preferences && typeof editing.preferences === "object" ? editing.preferences : {};
     if (new Set(["beat", "half-beat", "quarter-beat", "none"]).has(preferences.snap_mode)) state.snapMode = preferences.snap_mode;
     state.continuousLyrics = preferences.continuous_lyrics !== false;
     elements.snapGrid.value = state.snapMode;
     elements.continuousLyrics.checked = state.continuousLyrics;
     const selection = editing.selection || {};
-    setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
+    return { selection };
+  }
+
+  async function importProject(file) {
+    const candidate = await readJsonFile(file);
+    if (candidate.schema_version !== PROJECT_SCHEMA && candidate.schema_version !== PROJECT_SCHEMA_LEGACY) {
+      throw new Error(`不支持的项目版本：${String(candidate.schema_version || "缺失")}。`);
+    }
+    const analysis = validateAnalysis(candidate.analysis);
+    releaseAudioUrl();
+    applyAnalysis(analysis, false);
+
+    if (candidate.schema_version === PROJECT_SCHEMA_LEGACY) {
+      // 旧版项目：把秒数边界迁移到共享 anchor 模型
+      const { selection } = migrateLegacyProject(candidate, analysis);
+      setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
+      setStatus("已导入 0.1.0 项目并迁移到 0.2.0 共享 anchor 模型；请重新选择本地 WAV 才能播放。", "success");
+    } else {
+      // 0.2.0 项目：直接加载 anchor 与 region
+      importAnchorsAndRegions(candidate, analysis);
+      const editing = candidate.editing || {};
+      const preferences = editing.preferences && typeof editing.preferences === "object" ? editing.preferences : {};
+      if (new Set(["beat", "half-beat", "quarter-beat", "none"]).has(preferences.snap_mode)) state.snapMode = preferences.snap_mode;
+      state.continuousLyrics = preferences.continuous_lyrics !== false;
+      elements.snapGrid.value = state.snapMode;
+    elements.continuousLyrics.checked = state.continuousLyrics;
+      const selection = editing.selection || {};
+      setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
+      setStatus("项目已导入；分析和编辑状态已恢复，请重新选择本地 WAV 才能播放。", "success");
+    }
+
     elements.audioName.textContent = candidate.source_audio && candidate.source_audio.local_file_name ? `${candidate.source_audio.local_file_name}（需要重新关联）` : "需要重新关联 WAV";
     renderAll();
-    setStatus("项目已导入；分析和编辑状态已恢复，请重新选择本地 WAV 才能播放。", "success");
   }
+
+  // ---- 事件绑定 ---------------------------------------------------------------
 
   elements.analysisFile.addEventListener("change", async event => {
     const file = event.target.files && event.target.files[0];
@@ -960,6 +1605,11 @@
     handle.addEventListener("keydown", event => nudgeHandle(event, edge));
   });
 
+  // 共享边手柄的全局 pointermove/up/cancel 路由（在 beginEdgeDrag 中已 setPointerCapture）。
+  document.addEventListener("pointermove", moveEdge, true);
+  document.addEventListener("pointerup", endEdgeDrag, true);
+  document.addEventListener("pointercancel", cancelEdgeDrag, true);
+
   function applyNumericSelection() {
     const start = Number(elements.selectionStart.value);
     const end = Number(elements.selectionEnd.value);
@@ -973,11 +1623,7 @@
   elements.selectionEnd.addEventListener("change", applyNumericSelection);
   elements.saveLyricButton.addEventListener("click", saveLyricRegion);
   elements.cancelLyricEditButton.addEventListener("click", () => endLyricEdit(true));
-  elements.deleteLyricButton.addEventListener("click", () => {
-    state.lyrics = state.lyrics.filter(region => region.id !== state.selectedLyricId);
-    endLyricEdit(true);
-    setStatus("歌词区域已删除。", "success");
-  });
+  elements.deleteLyricButton.addEventListener("click", deleteLyric);
   elements.saveChordButton.addEventListener("click", saveChordOverride);
   elements.restoreChordButton.addEventListener("click", restoreChord);
 
@@ -992,7 +1638,7 @@
   });
   elements.continuousLyrics.addEventListener("change", event => {
     state.continuousLyrics = event.target.checked;
-    setStatus(state.continuousLyrics ? "连续歌词区已开启：小缝会自动连接，共享边界会一起移动。" : "连续歌词区已关闭：允许显式休止和空白。", "success");
+    setStatus(state.continuousLyrics ? "连续歌词区已开启：相邻区域共享边界，移动会同步两侧。" : "连续歌词区已关闭：允许显式休止和空白。", "success");
   });
   document.querySelectorAll("[data-layer]").forEach(input => input.addEventListener("change", () => {
     state.layers[input.dataset.layer] = input.checked;
@@ -1007,6 +1653,8 @@
         state.handleDragging = null;
         setSelection(previous.start, previous.end, false);
         setStatus("已取消边缘调整。", "success");
+      } else if (state.edgeDragging) {
+        cancelEdgeDrag();
       } else if (state.dragging) {
         const previous = state.dragging.previous;
         state.dragging = null;

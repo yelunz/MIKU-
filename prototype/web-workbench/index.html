@@ -162,6 +162,16 @@
             </div>
           </section>
 
+          <section id="rest-inspector" class="inspector-section" hidden>
+            <h3>休止与留白</h3>
+            <p id="rest-detail" class="muted"></p>
+            <div class="button-row">
+              <button id="convert-rest-button" class="primary" type="button" hidden>转为显式休止</button>
+              <button id="delete-rest-button" class="danger" type="button" hidden>删除休止</button>
+            </div>
+            <p class="muted small-note">休止是显式数据：保存后会在相邻歌词之间显示明确的留白。删除后恢复为未分配空段。</p>
+          </section>
+
           <details class="inspector-section">
             <summary>查看精确数据</summary>
             <pre id="exact-data">选择和弦或歌词区域后显示。</pre>

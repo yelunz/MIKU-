@@ -16,9 +16,16 @@
 - 新增可替换的浏览器 `DesktopBridge`，并记录 Electron/Tauri 三平台验证决定与矩阵。
 - 新增节拍吸附、选区边缘手柄、空格播放/暂停、Alt 临时绕过吸附和连续歌词区小缝闭合。
 - 新增多轨伴奏、音源分离、音符转录、钢琴卷帘和音乐小白渐进编曲的重构设计。
+- 新增 sample + PPQ 960 + 共享 Anchor 双时间模型：音频 sample 作为权威基准，tick 由 sample 派生；连续歌词区域在数据层共享 anchor，移动一次同时改变两侧，从根上消除漏缝。
+- 新增显式 RestEvent：未分配空段可转为休止数据，休止可单独编辑、删除；未分配与显式休止在视觉上分开。
+- 新增共享边手柄：相邻歌词/休止之间的边界可整体拖动，支持吸附、Alt 绕过、Esc 取消和方向键微调。
+- 新增项目 schema 0.2.0，包含 tempo_map、anchors 与 rests；导入时校验 anchor 唯一、引用有效、region 不重叠。
+- 新增 0.1.0 → 0.2.0 兼容迁移：旧版项目按秒数边界迁移到共享 anchor 模型，相邻歌词自动复用同一 anchor。
 
 ### Changed
 
+- LyricRegion 字段从 `{ start, end }`（秒）改为 `{ start_anchor_id, end_anchor_id }`（anchor 引用），由 anchor 派生秒数用于渲染。
+- 修复 `validateAnalysis` 在 `short_time_energy.bins` 校验里引用未定义变量 `field` 的潜在 ReferenceError。
 - 确认核心应用面向 Windows、macOS、Linux。
 - 确认首批适配 Synthesizer V Studio Pro 1.9.0 和验证时最新版稳定版 OpenUtau。
 - 明确 OpenUtau USTX 0.6 是首个端到端工程导出验收，不因增加 VOCALOID 而降低优先级。

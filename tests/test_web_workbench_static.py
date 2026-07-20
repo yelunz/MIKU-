@@ -55,7 +55,9 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("textContent", self.javascript)
 
     def test_project_and_analysis_versions_are_explicit(self) -> None:
-        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.1.0"', self.javascript)
+        # 0.2.0 引入 sample + PPQ 960 + Anchor 模型；旧版 0.1.0 必须仍能导入。
+        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.2.0"', self.javascript)
+        self.assertIn('PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0"', self.javascript)
         self.assertIn('ANALYSIS_SCHEMA = "0.1.0"', self.javascript)
         self.assertIn("validateAnalysis", self.javascript)
 
@@ -102,6 +104,8 @@ class WebWorkbenchStaticTests(unittest.TestCase):
             "save-lyric-button", "chord-label", "save-chord-button",
             "restore-chord-button", "import-project-button", "export-project-button",
             "snap-grid", "continuous-lyrics", "selection-start-handle", "selection-end-handle",
+            # 0.2.0 新增：休止检查器与显式休止按钮
+            "rest-inspector", "rest-detail", "convert-rest-button", "delete-rest-button",
         }
         self.assertTrue(required_ids.issubset(set(self.parser.ids)))
         for identifier in required_ids:
@@ -112,15 +116,60 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("event.repeat", self.javascript)
         self.assertIn("event.isComposing", self.javascript)
         self.assertIn("snapIntervalSeconds", self.javascript)
-        self.assertIn("linkedPrevious.end = start", self.javascript)
-        self.assertIn("linkedNext.start = end", self.javascript)
-        self.assertIn('block.style.right = percentAt(state.duration - region.end)', self.javascript)
-        self.assertIn('gap.textContent = "未分配 / 休止"', self.javascript)
-        self.assertIn("state.handleDragging", self.javascript)
-        self.assertIn('event.key === "Escape"', self.javascript)
         self.assertIn('addEventListener("pointercancel"', self.javascript)
         self.assertIn("event.altKey ? 0.001", self.javascript)
         self.assertNotIn("target instanceof HTMLButtonElement", self.javascript)
+        # 0.2.0：歌词区域改用共享 anchor 边界（数据层共享，不再用秒数硬链接）。
+        self.assertIn("startAnchorId", self.javascript)
+        self.assertIn("endAnchorId", self.javascript)
+        self.assertIn("previous.endAnchorId", self.javascript)
+        self.assertIn("next.startAnchorId", self.javascript)
+        # 共享边手柄渲染与拖动路由
+        self.assertIn("renderSharedEdges", self.javascript)
+        self.assertIn("shared-edge-handle", self.javascript)
+        self.assertIn("beginEdgeDrag", self.javascript)
+        self.assertIn("state.edgeDragging", self.javascript)
+        # 未分配空段仍渲染（保留显式留白提示）
+        self.assertIn('gap.textContent = "未分配"', self.javascript)
+        self.assertIn('block.style.right = percentAt(state.duration - endSeconds)', self.javascript)
+
+    def test_tempo_map_and_anchor_model_are_present(self) -> None:
+        # TempoMap：sample 为权威基准，PPQ 960，tick 由 sample 派生
+        self.assertIn("const PPQ = 960", self.javascript)
+        self.assertIn("buildTempoMap", self.javascript)
+        self.assertIn("sampleToTick", self.javascript)
+        self.assertIn("tickToSample", self.javascript)
+        self.assertIn("firstBeatSample", self.javascript)
+        self.assertIn("firstBeatTick", self.javascript)
+        # Anchor 表
+        self.assertIn("state.anchors", self.javascript)
+        self.assertIn("createAnchorAtSample", self.javascript)
+        self.assertIn("moveAnchor", self.javascript)
+        self.assertIn("findAnchorBySample", self.javascript)
+        self.assertIn("pruneAnchors", self.javascript)
+        self.assertIn("ANCHOR_TOLERANCE_SECONDS", self.javascript)
+        # 项目 schema 0.2.0 字段
+        self.assertIn("tempo_map:", self.javascript)
+        self.assertIn("first_beat_sample:", self.javascript)
+        self.assertIn("anchors: serializeAnchors()", self.javascript)
+        self.assertIn("start_anchor_id:", self.javascript)
+        self.assertIn("end_anchor_id:", self.javascript)
+
+    def test_rest_events_are_first_class_data(self) -> None:
+        # RestEvent 是显式数据，区别于"未分配空段"的渲染占位
+        self.assertIn("state.rests", self.javascript)
+        self.assertIn("convertSelectionToRest", self.javascript)
+        self.assertIn("deleteRest", self.javascript)
+        self.assertIn("editRest", self.javascript)
+        self.assertIn('"rest"', self.javascript)
+        self.assertIn("explicit-rest", self.javascript)
+        self.assertIn("unassigned-block", self.javascript)
+
+    def test_legacy_project_migration_is_present(self) -> None:
+        # 0.1.0 项目必须能迁移到 0.2.0 共享 anchor 模型
+        self.assertIn("migrateLegacyProject", self.javascript)
+        self.assertIn("PROJECT_SCHEMA_LEGACY", self.javascript)
+        self.assertIn("已导入 0.1.0 项目并迁移到 0.2.0", self.javascript)
 
 
 if __name__ == "__main__":

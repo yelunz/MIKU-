@@ -4,10 +4,10 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-20T03:36:12+08:00",
+  "last_updated": "2026-07-20T17:10:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
-  "remote_sync_status": "synced",
+  "remote_sync_status": "pending-commit",
   "confirmed_scope": {
     "target_operating_systems": [
       "windows",
@@ -81,15 +81,27 @@
       "entrypoint": "prototype/web-workbench/index.html",
       "runtime": "standards-browser-no-build",
       "analysis_schema": "0.1.0",
-      "project_schema": "miku-workbench-project/0.1.0",
-      "status": "runnable-interaction-prototype-under-multitrack-redesign",
+      "project_schema": "miku-workbench-project/0.2.0",
+      "project_schema_legacy": "miku-workbench-project/0.1.0",
+      "legacy_migration": "automatic-on-import",
+      "time_model": {
+        "audio_authority": "integer-sample",
+        "musical_time": "ppq-960-tick",
+        "shared_boundaries": "anchor-id",
+        "sample_is_authoritative": true,
+        "tick_derived_from_sample": true
+      },
+      "status": "runnable-interaction-prototype-p1.1-shared-anchor-complete",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4",
         "alt-temporary-snap-bypass",
         "selection-edge-handles",
         "keyboard-edge-nudge",
-        "continuous-lyric-gap-closing"
+        "continuous-lyric-shared-anchor",
+        "shared-edge-handle-drag",
+        "explicit-rest-create-edit-delete",
+        "legacy-0.1.0-project-migration"
       ],
       "verified_environment": "windows-edge"
     }
@@ -167,7 +179,11 @@
     "docs/MULTITRACK_COMPOSITION_DESIGN.md"
   ],
   "next_actions": [
-    "finish-p1.1-editor-interactions-with-shared-anchor-and-explicit-rest-model",
+    "run-p1.1-real-browser-regression-on-shared-edge-rest-and-0.2.0-project-roundtrip",
+    "implement-p1.1-undo-redo-edit-graph-first-version",
+    "implement-p1.1-lyric-block-whole-drag-and-stretch",
+    "implement-p1.1-zoom-anchor-and-playhead-auto-scroll",
+    "implement-p1.1-field-level-lock-against-regeneration",
     "define-p1.2-sample-ppq-anchor-multitrack-project-schema",
     "build-editable-note-and-drum-candidate-piano-roll-spike",
     "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
