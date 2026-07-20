@@ -2,9 +2,9 @@
   "schema_version": 1,
   "project_name": "Miku 歌姬解放计划",
   "working_title": true,
-  "phase": "p1-audio-workbench-technical-validation",
+  "phase": "p2-p3-complete-full-feature-prototype-v0.4.0-first-version",
   "status": "in-progress",
-  "last_updated": "2026-07-21T03:30:00+08:00",
+  "last_updated": "2026-07-21T05:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -81,8 +81,9 @@
       "entrypoint": "prototype/web-workbench/index.html",
       "runtime": "standards-browser-no-build",
       "analysis_schema": "0.1.0",
-      "project_schema": "miku-workbench-project/0.2.0",
+      "project_schema": "miku-workbench-project/0.3.0",
       "project_schema_legacy": "miku-workbench-project/0.1.0",
+      "project_schema_legacy_020": "miku-workbench-project/0.2.0",
       "legacy_migration": "automatic-on-import",
       "time_model": {
         "audio_authority": "integer-sample",
@@ -91,7 +92,7 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p1.2-r5-electron-minimal-shell",
+      "status": "runnable-interaction-prototype-p2-r1-syllable-and-vocal-preview",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4-1-8-and-triplet",
@@ -112,7 +113,12 @@
         "piano-roll-with-create-move-stretch-split-merge-note-events",
         "quantize-grid-with-dotted-1-8-triplet-and-swing",
         "nondestructive-mix-trim-fade-with-edited-vs-original-preview-toggle",
-        "electron-minimal-shell-with-context-bridge-and-whitelist-ipc"
+        "electron-minimal-shell-with-context-bridge-and-whitelist-ipc",
+        "syllable-splitting-chinese-by-char-japanese-by-kana-with-yoon-sokuon-hatsuon-chouon",
+        "pinyin-and-kana-romaji-tables-with-reading-override",
+        "vocal-preview-with-oscillator-node-and-gain-envelope",
+        "field-level-lock-on-syllable-reading-with-undo-and-persistence",
+        "project-schema-0.3.0-with-0.2.0-and-0.1.0-automatic-migration"
       ],
       "verified_environment": "windows-edge"
     },
@@ -138,11 +144,11 @@
         ]
       },
       "build_targets": {
-        "windows": "nsis-x64-built-dist-miku-workbench-0.3.0-win-x64.exe-101mb-smoke-startup-ok",
+        "windows": "nsis-x64-built-dist-miku-workbench-0.4.0-win-x64.exe-101mb-asar-missing-web-workbench-pending-rebuild",
         "macos": "not-yet-configured",
         "linux": "not-yet-configured"
       },
-      "status": "windows-x64-nsis-package-built-and-smoke-startup-verified"
+      "status": "windows-x64-nsis-package-built-v0.4.0-asar-needs-rebuild-with-real-copy"
     }
   ],
   "desktop_stack_validation": {
@@ -221,11 +227,28 @@
     "prototype/desktop-shell/preload.js",
     "prototype/desktop-shell/.gitignore",
     "prototype/desktop-shell/README.md",
-    "tests/test_desktop_shell_static.py"
+    "tests/test_desktop_shell_static.py",
+    "docs/ADAPTER_CAPABILITY_MATRIX.md",
+    "docs/ANALYSIS_BACKEND_RESEARCH.md",
+    "docs/ENGINE_ADAPTERS.md",
+    "tools/export_midi.py",
+    "tools/export_ustx.py",
+    "tools/export_synthv_sidecar.py",
+    "tools/synthv_helper_script_es5.js",
+    "tools/synthv_sidecar_schema.md",
+    "tests/test_engine_adapters.py"
   ],
   "next_actions": [
+    "rebuild-miku-workbench-0.4.0-win-x64-nsis-with-real-copy-of-web-workbench-junction-not-recognized-by-electron-builder",
+    "run-p2-r1-real-browser-regression-on-syllable-splitting-reading-override-vocal-preview-0.2.0-migration-0.1.0-migration-undo-redo-and-syllable-lock-preservation",
     "run-p1.1-and-p1.2-r1-r2-r3-r4-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-nondestructive-mix-and-project-roundtrip",
-    "deliver-miku-workbench-0.3.0-win-x64-installer-to-user-for-first-end-to-end-testing",
+    "deliver-miku-workbench-0.4.0-win-x64-installer-to-user-for-first-end-to-end-testing-after-asar-fix",
+    "validate-ustx-0.6-export-against-openutau-0.1.565-real-editor",
+    "validate-synthv-helper-script-against-synthesizer-v-studio-pro-1.9.0-real-editor",
+    "validate-midi-export-against-vocaloid6-6.13.0-full-standalone-real-editor",
+    "extend-pinyin-table-from-unihan-and-kana-romaji-table-for-compound-readings",
+    "begin-openutau-ustx-0.6-adapter-with-syllable-phoneme-data-structure",
+    "enhance-vocal-preview-with-basic-pitch-transcription-and-formant-synthesis",
     "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
     "connect-desktop-bridge-to-packaged-python-analysis-process",
     "run-packaged-workbench-validation-on-windows-macos-linux",
@@ -240,11 +263,12 @@
     "adapter-depth-per-target-and-operating-system",
     "desktop-application-stack",
     "minimum-analysis-layers-for-mvp",
-    "chinese-and-japanese-reading-input-workflow",
     "working-title-and-brand-review",
     "source-separation-backend-and-model-license",
     "audio-to-note-transcription-backend",
     "sample-ppq-anchor-project-schema",
-    "novice-shape-controls-to-professional-data-mapping"
+    "novice-shape-controls-to-professional-data-mapping",
+    "pinyin-table-coverage-and-unihan-extension-strategy",
+    "vocal-preview-timbre-and-formant-synthesis-depth"
   ]
 }

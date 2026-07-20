@@ -29,8 +29,8 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(self.package_json["name"], "miku-workbench")
         self.assertEqual(self.package_json["main"], "main.js")
         self.assertEqual(self.package_json["private"], True)
-        # 版本号与项目 0.2.0 schema 一致，桌面壳作为 0.3.0 起步
-        self.assertEqual(self.package_json["version"], "0.3.0")
+        # 版本号与项目 0.3.0 schema 一致；P2 + P3 完成后桌面壳升到 0.4.0
+        self.assertEqual(self.package_json["version"], "0.4.0")
         # Electron 43.x 与 electron-builder 25.x 是 DESKTOP_STACK_SPIKE.md 决定的版本
         self.assertIn("electron", self.package_json["devDependencies"])
         self.assertRegex(
