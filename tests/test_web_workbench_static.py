@@ -483,6 +483,76 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         # 量化按钮在工具按钮可用性中
         self.assertIn("elements.quantizeNoteButton.disabled", self.javascript)
 
+    def test_nondestructive_mix_and_preview_toggle_are_present(self) -> None:
+        # P1.2 轮 4：非破坏混音参数（trim/fade）+ A/B 试听切换（edited / original）
+        # defaultStemTracks 包含 trim/fade 字段
+        self.assertIn("trimStartSeconds: 0", self.javascript)
+        self.assertIn("trimEndSeconds: 0", self.javascript)
+        self.assertIn("fadeInSeconds: 0", self.javascript)
+        self.assertIn("fadeOutSeconds: 0", self.javascript)
+        # state.stemPreviewMode 默认 edited
+        self.assertIn('stemPreviewMode: "edited"', self.javascript)
+        # 非破坏参数生效函数
+        self.assertIn("function stemEffectiveTrimRange", self.javascript)
+        self.assertIn("function stemEffectiveFade", self.javascript)
+        self.assertIn("function applyMasterFadeEnvelope", self.javascript)
+        self.assertIn("function enforceMasterTrimBoundary", self.javascript)
+        # original 模式忽略非破坏参数
+        self.assertIn('state.stemPreviewMode === "original"', self.javascript)
+        # buildStemRow 渲染 trim/fade 输入控件
+        self.assertIn('dataset.stemControl = "trimStartSeconds"', self.javascript)
+        self.assertIn('dataset.stemControl = "trimEndSeconds"', self.javascript)
+        self.assertIn('dataset.stemControl = "fadeInSeconds"', self.javascript)
+        self.assertIn('dataset.stemControl = "fadeOutSeconds"', self.javascript)
+        self.assertIn("stem-number-group", self.javascript)
+        self.assertIn("stem-number", self.javascript)
+        # numberFieldClamps 统一处理所有 number 字段
+        self.assertIn("trimStartSeconds: v => Math.max(0, v)", self.javascript)
+        self.assertIn("trimEndSeconds: v => Math.max(0, v)", self.javascript)
+        self.assertIn("fadeInSeconds: v => Math.max(0, v)", self.javascript)
+        self.assertIn("fadeOutSeconds: v => Math.max(0, v)", self.javascript)
+        # formatStemFieldValue 处理新字段
+        self.assertIn("field === \"trimStartSeconds\"", self.javascript)
+        # EditGraph snapshot/restore 包含 stemPreviewMode 与 trim/fade 向前兼容
+        self.assertIn("stemPreviewMode: state.stemPreviewMode", self.javascript)
+        self.assertIn("state.stemPreviewMode = snapshot.stemPreviewMode", self.javascript)
+        self.assertIn("track.trimStartSeconds", self.javascript)
+        # HTML 中有 A/B 试听切换控件
+        self.assertIn('id="stem-preview-mode"', self.html)
+        self.assertIn('<option value="edited" selected>', self.html)
+        self.assertIn('<option value="original">', self.html)
+        # elements 引用 + 事件绑定
+        self.assertIn("stemPreviewMode: byId", self.javascript)
+        self.assertIn("elements.stemPreviewMode.addEventListener", self.javascript)
+        # 导出包含 trim/fade + stem_preview_mode
+        self.assertIn("trim_start_seconds: finiteNumber(track.trimStartSeconds", self.javascript)
+        self.assertIn("trim_end_seconds: finiteNumber(track.trimEndSeconds", self.javascript)
+        self.assertIn("fade_in_seconds: finiteNumber(track.fadeInSeconds", self.javascript)
+        self.assertIn("fade_out_seconds: finiteNumber(track.fadeOutSeconds", self.javascript)
+        self.assertIn("stem_preview_mode: state.stemPreviewMode", self.javascript)
+        # 导入加载 trim/fade + stem_preview_mode（0.2.0 项目偏好恢复）
+        self.assertIn("track.trim_start_seconds", self.javascript)
+        self.assertIn("track.trim_end_seconds", self.javascript)
+        self.assertIn("track.fade_in_seconds", self.javascript)
+        self.assertIn("track.fade_out_seconds", self.javascript)
+        self.assertIn("importedPreferences.stem_preview_mode", self.javascript)
+        # resetEditingState 重置 stemPreviewMode
+        self.assertIn('state.stemPreviewMode = "edited"', self.javascript)
+        # 0.1.0 项目迁移时回退到 edited
+        self.assertIn("0.1.0 项目没有 stem_preview_mode 字段", self.javascript)
+        # togglePlayback 应用 trim start
+        self.assertIn("stemEffectiveTrimRange(master)", self.javascript)
+        # timeupdate / seeked 事件监听 trim 边界与 fade 包络
+        self.assertIn("enforceMasterTrimBoundary()", self.javascript)
+        self.assertIn("applyMasterFadeEnvelope()", self.javascript)
+        # CSS 样式
+        self.assertIn(".stem-number-group", self.styles)
+        self.assertIn(".stem-number", self.styles)
+        self.assertIn(".stem-preview-toolbar", self.styles)
+        self.assertIn(".stem-preview-hint", self.styles)
+        # 不使用 innerHTML（与既有规则一致）
+        self.assertNotIn("innerHTML", self.javascript)
+
 
 
 if __name__ == "__main__":

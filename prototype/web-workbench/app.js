@@ -61,6 +61,10 @@
     // drums/bass/other 是占位 stem（无分离音频），只保存参数与展示 UI，
     // 等 Demucs 等音源分离后端接入后才会真实播放。
     stemTracks: defaultStemTracks(),
+    // P1.2 轮 4：A/B 试听模式。"edited" 应用 trim/fade 等非破坏参数；
+    // "original" 忽略所有非破坏参数（仍保留 gain/pan/mute/solo）。
+    // 没有真实重合成后端，"original" 等同于"忽略非破坏混音参数的原始音频"。
+    stemPreviewMode: "edited",
     // NoteEvent 数据模型（P1.2 轮 2）：可编辑的音符候选。
     // 每个音符引用 start/end anchor（与歌词/休止共享时间模型），
     // 浮点 MIDI pitch（60 = C4），velocity 0..1，confidence 0..1，
@@ -95,10 +99,16 @@
 
   function defaultStemTracks() {
     return [
-      { id: "master", name: "伴奏总览", role: "master", mute: false, solo: false, gain: 1.0, pan: 0, source: "main" },
-      { id: "drums", name: "鼓组", role: "drums", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder" },
-      { id: "bass", name: "贝斯", role: "bass", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder" },
-      { id: "other", name: "其他乐器", role: "other", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder" },
+      { id: "master", name: "伴奏总览", role: "master", mute: false, solo: false, gain: 1.0, pan: 0, source: "main",
+        // P1.2 轮 4：非破坏混音参数。trim 是首尾裁切秒数；fade 是淡入淡出秒数。
+        // master stem 真实生效（通过 audioGraph 与 timeupdate 监听）；占位 stem 只保存参数。
+        trimStartSeconds: 0, trimEndSeconds: 0, fadeInSeconds: 0, fadeOutSeconds: 0 },
+      { id: "drums", name: "鼓组", role: "drums", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder",
+        trimStartSeconds: 0, trimEndSeconds: 0, fadeInSeconds: 0, fadeOutSeconds: 0 },
+      { id: "bass", name: "贝斯", role: "bass", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder",
+        trimStartSeconds: 0, trimEndSeconds: 0, fadeInSeconds: 0, fadeOutSeconds: 0 },
+      { id: "other", name: "其他乐器", role: "other", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder",
+        trimStartSeconds: 0, trimEndSeconds: 0, fadeInSeconds: 0, fadeOutSeconds: 0 },
     ];
   }
 
@@ -167,6 +177,75 @@
     // 占位 stem 没有 audio 节点；UI 在 renderStemMixer 中反映状态。
   }
 
+  // P1.2 轮 4：非破坏混音参数。master stem 真实生效 trim/fade。
+  //   - trim：播放开始时跳到 trimStartSeconds；到达 trimEndSeconds 时停止（timeupdate 监听）
+  //   - fade：用 masterGain 的 linearRampToValueAtTime 在播放头进入淡入/淡出区间时构造包络
+  // "original" 模式忽略所有非破坏参数（只保留 gain/pan/mute/solo）。
+  function stemEffectiveTrimRange(track) {
+    if (state.stemPreviewMode === "original") return { start: 0, end: state.duration };
+    const trimStart = clamp(finiteNumber(track.trimStartSeconds, 0), 0, Math.max(0, state.duration));
+    const trimEndRaw = clamp(finiteNumber(track.trimEndSeconds, 0), 0, Math.max(0, state.duration));
+    const trimEnd = trimEndRaw > 0 ? Math.max(trimStart + 0.01, trimEndRaw) : state.duration;
+    return { start: trimStart, end: Math.min(trimEnd, state.duration) };
+  }
+
+  function stemEffectiveFade(track) {
+    if (state.stemPreviewMode === "original") return { fadeIn: 0, fadeOut: 0 };
+    return {
+      fadeIn: Math.max(0, finiteNumber(track.fadeInSeconds, 0)),
+      fadeOut: Math.max(0, finiteNumber(track.fadeOutSeconds, 0)),
+    };
+  }
+
+  // 在播放开始 / seek / timeupdate 时调用，更新 masterGain 包络。
+  function applyMasterFadeEnvelope() {
+    if (!audioGraph.ready || !audioGraph.context) return;
+    const master = state.stemTracks.find(track => track.id === "master");
+    if (!master) return;
+    const { effectiveGain } = stemEffectiveState(master);
+    const { start, end } = stemEffectiveTrimRange(master);
+    const { fadeIn, fadeOut } = stemEffectiveFade(master);
+    const current = elements.audio.currentTime;
+    const ctx = audioGraph.context;
+    const gainParam = audioGraph.masterGain.gain;
+    gainParam.cancelScheduledValues(ctx.currentTime);
+    // 不在 trim 范围内 → 静音
+    if (current < start - 0.001 || current > end + 0.001) {
+      gainParam.setValueAtTime(0, ctx.currentTime);
+      return;
+    }
+    // 淡入：从 start 到 start + fadeIn，gain 从 0 线性升到 effectiveGain
+    if (fadeIn > 0 && current < start + fadeIn) {
+      gainParam.setValueAtTime(0, ctx.currentTime);
+      gainParam.linearRampToValueAtTime(effectiveGain, ctx.currentTime + Math.max(0.001, start + fadeIn - current));
+    } else {
+      gainParam.setValueAtTime(effectiveGain, ctx.currentTime);
+    }
+    // 淡出：从 end - fadeOut 到 end，gain 从 effectiveGain 线性降到 0
+    if (fadeOut > 0 && current < end && current < end - 0.001) {
+      const fadeOutStart = Math.max(current, end - fadeOut);
+      if (fadeOutStart < end) {
+        gainParam.setValueAtTime(effectiveGain, ctx.currentTime + Math.max(0, fadeOutStart - current));
+        gainParam.linearRampToValueAtTime(0, ctx.currentTime + Math.max(0.001, end - current));
+      }
+    }
+  }
+
+  // 播放头进入 trim 范围外时停止播放（timeupdate 监听调用）。
+  function enforceMasterTrimBoundary() {
+    if (state.stemPreviewMode === "original") return;
+    const master = state.stemTracks.find(track => track.id === "master");
+    if (!master) return;
+    const { start, end } = stemEffectiveTrimRange(master);
+    const current = elements.audio.currentTime;
+    if (current < start - 0.01) {
+      elements.audio.currentTime = start;
+    } else if (current > end + 0.05) {
+      elements.audio.pause();
+      elements.audio.currentTime = end;
+    }
+  }
+
   // ---- EditGraph：撤销/重做栈（第一版）-----------------------------------------
   // 设计原则：
   // - 每次会改变 anchors / lyrics / rests / chordOverrides / selection 的"用户操作"
@@ -196,6 +275,8 @@
         lockedFields: Array.from(state.lockedFields),
         // stem 轨混音参数也是用户编辑的一部分，撤销/重做时一并恢复。
         stemTracks: state.stemTracks.map(track => ({ ...track })),
+        // P1.2 轮 4：试听模式（edited / original）也随快照保存。
+        stemPreviewMode: state.stemPreviewMode,
         // 音符候选也是用户编辑的一部分，撤销/重做时一并恢复（P1.2 轮 2 起）。
         notes: state.notes.map(note => ({ ...note })),
         nextNoteId: state.nextNoteId,
@@ -216,8 +297,16 @@
       state.lockedFields = new Set(Array.isArray(snapshot.lockedFields) ? snapshot.lockedFields : []);
       // stem 轨可能在旧版快照中不存在（向前兼容），缺失时保留默认 stem。
       state.stemTracks = Array.isArray(snapshot.stemTracks) && snapshot.stemTracks.length
-        ? snapshot.stemTracks.map(track => ({ ...track }))
+        ? snapshot.stemTracks.map(track => ({
+          ...track,
+          // P1.2 轮 4：旧版快照可能没有 trim/fade 字段，缺失时回退到 0。
+          trimStartSeconds: Number.isFinite(track.trimStartSeconds) ? track.trimStartSeconds : 0,
+          trimEndSeconds: Number.isFinite(track.trimEndSeconds) ? track.trimEndSeconds : 0,
+          fadeInSeconds: Number.isFinite(track.fadeInSeconds) ? track.fadeInSeconds : 0,
+          fadeOutSeconds: Number.isFinite(track.fadeOutSeconds) ? track.fadeOutSeconds : 0,
+        }))
         : defaultStemTracks();
+      state.stemPreviewMode = snapshot.stemPreviewMode === "original" ? "original" : "edited";
       // 音符候选可能在旧版快照中不存在（P1.2 轮 2 之前），缺失时清空。
       state.notes = Array.isArray(snapshot.notes) ? snapshot.notes.map(note => ({ ...note })) : [];
       state.nextNoteId = Number.isFinite(snapshot.nextNoteId) ? snapshot.nextNoteId : 1;
@@ -336,6 +425,8 @@
     lockRestWrapper: byId("lock-rest-wrapper"),
     lockRestCheckbox: byId("lock-rest-checkbox"),
     stemMixer: byId("stem-mixer"),
+    // P1.2 轮 4：A/B 试听模式切换控件（edited / original）。
+    stemPreviewMode: byId("stem-preview-mode"),
     pianoRollScroll: byId("piano-roll-scroll"),
     pianoRollContent: byId("piano-roll-content"),
     pianoRollCanvas: byId("piano-roll-canvas"),
@@ -698,6 +789,9 @@
     state.lockedFields = new Set();
     // stem 轨混音参数重置为默认；新项目里旧的混音参数无意义。
     state.stemTracks = defaultStemTracks();
+    // P1.2 轮 4：试听模式重置为 edited；新项目里没有"原始/重合成"对比的必要。
+    state.stemPreviewMode = "edited";
+    if (elements.stemPreviewMode) elements.stemPreviewMode.value = "edited";
     // 音符候选清空；新项目里旧的音符无意义。
     state.notes = [];
     state.nextNoteId = 1;
@@ -1445,6 +1539,68 @@
     panLabel.appendChild(panValue);
     controls.appendChild(panLabel);
 
+    // P1.2 轮 4：非破坏混音参数。trim 是首尾裁切秒数；fade 是淡入淡出秒数。
+    // 在所有 stem 上都呈现参数 UI（占位 stem 也保存参数，等接入分离后端时复用）。
+    const trimGroup = document.createElement("div");
+    trimGroup.className = "stem-number-group";
+    const trimStartLabel = document.createElement("label");
+    trimStartLabel.className = "stem-number";
+    const trimStartCaption = document.createElement("span");
+    trimStartCaption.textContent = "裁切起（秒）";
+    trimStartLabel.appendChild(trimStartCaption);
+    const trimStartInput = document.createElement("input");
+    trimStartInput.type = "number";
+    trimStartInput.min = "0";
+    trimStartInput.step = "0.01";
+    trimStartInput.value = String(track.trimStartSeconds);
+    trimStartInput.dataset.stemControl = "trimStartSeconds";
+    trimStartLabel.appendChild(trimStartInput);
+    trimGroup.appendChild(trimStartLabel);
+    const trimEndLabel = document.createElement("label");
+    trimEndLabel.className = "stem-number";
+    const trimEndCaption = document.createElement("span");
+    trimEndCaption.textContent = "裁切止（秒）";
+    trimEndLabel.appendChild(trimEndCaption);
+    const trimEndInput = document.createElement("input");
+    trimEndInput.type = "number";
+    trimEndInput.min = "0";
+    trimEndInput.step = "0.01";
+    trimEndInput.value = String(track.trimEndSeconds);
+    trimEndInput.dataset.stemControl = "trimEndSeconds";
+    trimEndLabel.appendChild(trimEndInput);
+    trimGroup.appendChild(trimEndLabel);
+    controls.appendChild(trimGroup);
+
+    const fadeGroup = document.createElement("div");
+    fadeGroup.className = "stem-number-group";
+    const fadeInLabel = document.createElement("label");
+    fadeInLabel.className = "stem-number";
+    const fadeInCaption = document.createElement("span");
+    fadeInCaption.textContent = "淡入（秒）";
+    fadeInLabel.appendChild(fadeInCaption);
+    const fadeInInput = document.createElement("input");
+    fadeInInput.type = "number";
+    fadeInInput.min = "0";
+    fadeInInput.step = "0.01";
+    fadeInInput.value = String(track.fadeInSeconds);
+    fadeInInput.dataset.stemControl = "fadeInSeconds";
+    fadeInLabel.appendChild(fadeInInput);
+    fadeGroup.appendChild(fadeInLabel);
+    const fadeOutLabel = document.createElement("label");
+    fadeOutLabel.className = "stem-number";
+    const fadeOutCaption = document.createElement("span");
+    fadeOutCaption.textContent = "淡出（秒）";
+    fadeOutLabel.appendChild(fadeOutCaption);
+    const fadeOutInput = document.createElement("input");
+    fadeOutInput.type = "number";
+    fadeOutInput.min = "0";
+    fadeOutInput.step = "0.01";
+    fadeOutInput.value = String(track.fadeOutSeconds);
+    fadeOutInput.dataset.stemControl = "fadeOutSeconds";
+    fadeOutLabel.appendChild(fadeOutInput);
+    fadeGroup.appendChild(fadeOutLabel);
+    controls.appendChild(fadeGroup);
+
     const status = document.createElement("span");
     status.className = "stem-status";
     status.dataset.stemReadout = "status";
@@ -1474,6 +1630,9 @@
     if (field === "pan") {
       const percent = Math.round(value * 100);
       return percent === 0 ? "中" : (percent < 0 ? `L ${Math.abs(percent)}` : `R ${percent}`);
+    }
+    if (field === "trimStartSeconds" || field === "trimEndSeconds" || field === "fadeInSeconds" || field === "fadeOutSeconds") {
+      return `${value.toFixed(3)} 秒`;
     }
     return String(value);
   }
@@ -2541,6 +2700,7 @@
         locked_fields: serializeLockedFields(),
         // stem 轨混音参数（非破坏编辑）随项目持久化；占位 stem 也保存参数，
         // 后续接入分离后端时可以复用用户已有的混音设置。
+        // P1.2 轮 4：trim/fade 字段一并持久化，重新打开项目后恢复 A/B 试听边界。
         stem_tracks: state.stemTracks.map(track => ({
           id: track.id,
           name: track.name,
@@ -2550,6 +2710,10 @@
           gain: track.gain,
           pan: track.pan,
           source: track.source,
+          trim_start_seconds: finiteNumber(track.trimStartSeconds, 0),
+          trim_end_seconds: finiteNumber(track.trimEndSeconds, 0),
+          fade_in_seconds: finiteNumber(track.fadeInSeconds, 0),
+          fade_out_seconds: finiteNumber(track.fadeOutSeconds, 0),
         })),
         // 音符候选（P1.2 轮 2 起）随项目持久化；引用 anchor 与 stem。
         notes: state.notes.map(note => ({
@@ -2567,6 +2731,8 @@
           continuous_lyrics: state.continuousLyrics,
           dotted_snap: state.dottedSnap,
           swing_amount: state.swingAmount,
+          // P1.2 轮 4：试听模式（edited / original）随项目持久化。
+          stem_preview_mode: state.stemPreviewMode,
         },
       },
     };
@@ -2686,8 +2852,10 @@
 
     // 加载 stem 轨混音参数；缺失或损坏时回退到默认 stem 集，保证向前兼容。
     // 0.2.0 项目早期版本可能没有 stem_tracks 字段；这种情况视为新建项目。
+    // P1.2 轮 4：trim/fade 字段也一并加载并 clamp 到 0..duration；早期版本缺失时回退到 0。
     const rawStemTracks = Array.isArray(editing.stem_tracks) ? editing.stem_tracks : [];
     const validStemIds = new Set(["master", "drums", "bass", "other"]);
+    const durationUpper = Math.max(0, state.duration);
     const loadedStemTracks = rawStemTracks
       .filter(track => track && typeof track === "object" && typeof track.id === "string" && validStemIds.has(track.id))
       .map(track => ({
@@ -2699,11 +2867,34 @@
         gain: clamp(finiteNumber(track.gain, 1.0), 0, 1.5),
         pan: clamp(finiteNumber(track.pan, 0), -1, 1),
         source: track.source === "main" ? "main" : "placeholder",
+        // P1.2 轮 4：trim/fade 字段向前兼容；旧项目缺失或字段非有限数时回退到 0。
+        // trim_end_seconds = 0 在 stemEffectiveTrimRange 中表示"不裁切，到音频结尾"。
+        trimStartSeconds: clamp(finiteNumber(track.trim_start_seconds, 0), 0, durationUpper),
+        trimEndSeconds: clamp(finiteNumber(track.trim_end_seconds, 0), 0, durationUpper),
+        fadeInSeconds: Math.max(0, finiteNumber(track.fade_in_seconds, 0)),
+        fadeOutSeconds: Math.max(0, finiteNumber(track.fade_out_seconds, 0)),
       }));
     // 必须存在 master 轨；缺失时整套回退到默认。
     state.stemTracks = loadedStemTracks.some(track => track.id === "master")
       ? loadedStemTracks
       : defaultStemTracks();
+
+    // P1.2 轮 4：加载偏好集合（snap/continuous/dotted/swing/stem_preview_mode）。
+    // 此前 0.2.0 项目导入时偏好未恢复，这里一并补齐。
+    const importedPreferences = editing.preferences && typeof editing.preferences === "object" ? editing.preferences : {};
+    if (new Set(["beat", "half-beat", "quarter-beat", "eighth-beat", "triplet-half", "triplet-quarter", "none"]).has(importedPreferences.snap_mode)) {
+      state.snapMode = importedPreferences.snap_mode;
+    }
+    state.continuousLyrics = importedPreferences.continuous_lyrics !== false;
+    state.dottedSnap = importedPreferences.dotted_snap === true;
+    const importedSwing = Number(importedPreferences.swing_amount);
+    state.swingAmount = Number.isFinite(importedSwing) ? Math.max(0, Math.min(0.7, importedSwing)) : 0;
+    state.stemPreviewMode = importedPreferences.stem_preview_mode === "original" ? "original" : "edited";
+    if (elements.snapGrid) elements.snapGrid.value = state.snapMode;
+    if (elements.continuousLyrics) elements.continuousLyrics.checked = state.continuousLyrics;
+    if (elements.dottedSnap) elements.dottedSnap.checked = state.dottedSnap;
+    if (elements.swingAmount) elements.swingAmount.value = String(state.swingAmount);
+    if (elements.stemPreviewMode) elements.stemPreviewMode.value = state.stemPreviewMode;
 
     // 加载音符候选（P1.2 轮 2 起）。0.2.0 早期项目可能没有 notes 字段；这种情况视为没有音符。
     const rawNotes = Array.isArray(editing.notes) ? editing.notes : [];
@@ -2772,6 +2963,9 @@
     state.lockedFields = new Set();
     // 0.1.0 项目没有 stem_tracks 字段；迁移时回退到默认 stem 集。
     state.stemTracks = defaultStemTracks();
+    // P1.2 轮 4：0.1.0 项目没有 stem_preview_mode 字段；迁移时回退到 edited。
+    state.stemPreviewMode = "edited";
+    if (elements.stemPreviewMode) elements.stemPreviewMode.value = "edited";
     // 0.1.0 项目没有 notes 字段；迁移时清空音符候选。
     state.notes = [];
     state.nextNoteId = 1;
@@ -2914,10 +3108,25 @@
     resumeAudioContext();
     try {
       if (elements.audio.paused) {
-        if (elements.audio.ended || elements.audio.currentTime >= state.duration - 0.01) {
-          elements.audio.currentTime = state.selection.end > state.selection.start ? state.selection.start : 0;
+        // P1.2 轮 4：播放起点受 master stem 的 trimStart 影响（仅 edited 模式）。
+        const master = state.stemTracks.find(track => track.id === "master");
+        const { start: trimStart, end: trimEnd } = master ? stemEffectiveTrimRange(master) : { start: 0, end: state.duration };
+        const selectionStart = state.selection.end > state.selection.start ? state.selection.start : null;
+        const baseStart = elements.audio.ended || elements.audio.currentTime >= state.duration - 0.01;
+        if (baseStart) {
+          // 重新开始播放：优先用选区起点，否则用 trimStart（edited 模式）或 0。
+          const target = selectionStart !== null ? selectionStart : trimStart;
+          if (target >= trimStart && target < trimEnd) {
+            elements.audio.currentTime = target;
+          } else {
+            elements.audio.currentTime = trimStart;
+          }
+        } else if (elements.audio.currentTime < trimStart - 0.01 || elements.audio.currentTime > trimEnd + 0.05) {
+          // 当前播放头在 trim 范围外，重置到 trimStart。
+          elements.audio.currentTime = trimStart;
         }
         await elements.audio.play();
+        applyMasterFadeEnvelope();
       } else elements.audio.pause();
       updateTransport();
     } catch (error) {
@@ -2930,10 +3139,18 @@
     elements.audio.currentTime = state.selection.end > state.selection.start ? state.selection.start : 0;
     updateTransport();
   });
-  elements.audio.addEventListener("timeupdate", updateTransport);
+  elements.audio.addEventListener("timeupdate", () => {
+    updateTransport();
+    enforceMasterTrimBoundary();
+    applyMasterFadeEnvelope();
+  });
   elements.audio.addEventListener("play", updateTransport);
   elements.audio.addEventListener("pause", updateTransport);
   elements.audio.addEventListener("ended", updateTransport);
+  elements.audio.addEventListener("seeked", () => {
+    applyMasterFadeEnvelope();
+    enforceMasterTrimBoundary();
+  });
   elements.audio.addEventListener("error", () => setStatus("浏览器无法解码这个 WAV，请检查编码和文件完整性。", "error"));
   elements.audio.addEventListener("loadedmetadata", () => {
     state.audioDuration = Number.isFinite(elements.audio.duration) ? elements.audio.duration : null;
@@ -3125,6 +3342,15 @@
     });
     // input 事件用 change 提交（拖动结束才记撤销点），input 事件只实时更新音频。
     // 这样拖动 gain 滑块不会每个像素都写一条 undo。
+    // P1.2 轮 4：trim/fade 字段也通过同一委托处理；trim/fade 字段在 master stem 上实时生效。
+    const numberFieldClamps = {
+      gain: v => clamp(v, 0, 1.5),
+      pan: v => clamp(v, -1, 1),
+      trimStartSeconds: v => Math.max(0, v),
+      trimEndSeconds: v => Math.max(0, v),
+      fadeInSeconds: v => Math.max(0, v),
+      fadeOutSeconds: v => Math.max(0, v),
+    };
     elements.stemMixer.addEventListener("input", event => {
       const input = event.target.closest('input[data-stem-control]');
       if (!input) return;
@@ -3132,14 +3358,15 @@
       if (!row) return;
       const trackId = row.dataset.trackId;
       const field = input.dataset.stemControl;
-      if (field !== "gain" && field !== "pan") return;
+      if (!(field in numberFieldClamps)) return;
       const track = state.stemTracks.find(item => item.id === trackId);
       if (!track) return;
-      const value = Number(input.value);
+      const value = numberFieldClamps[field](Number(input.value));
       if (!Number.isFinite(value)) return;
       // 拖动过程中直接改值并应用混音，但不记 undo（change 事件再提交）
       track[field] = value;
       applyStemMix();
+      applyMasterFadeEnvelope();
       // 只更新数值显示，不重建控件
       const gainValue = row.querySelector('[data-stem-readout="gain"]');
       const panValue = row.querySelector('[data-stem-readout="pan"]');
@@ -3162,22 +3389,17 @@
       if (!row) return;
       const trackId = row.dataset.trackId;
       const field = input.dataset.stemControl;
-      if (field !== "gain" && field !== "pan") return;
-      const value = Number(input.value);
+      if (!(field in numberFieldClamps)) return;
+      const value = numberFieldClamps[field](Number(input.value));
       if (!Number.isFinite(value)) return;
-      // 拖动结束才记 undo：把当前值视为"新值"，但数据已经改过，所以先回滚再走 updateStemField。
+      // 拖动结束才记 undo：把当前值视为"新值"，但数据已经改过，所以直接 begin + 保留值。
       const track = state.stemTracks.find(item => item.id === trackId);
       if (!track) return;
-      const currentValue = track[field];
-      if (currentValue === value) return;
-      // currentValue 已经是 value（input 事件改过），用 currentValue 直接提交 undo：
-      // 把"undoStack 顶快照"视为操作前状态。这里直接调用 editGraph.begin 然后保留值即可。
-      // 简化：用 updateStemField 会再次改值（值相同则不写 undo），所以先回滚再调。
-      track[field] = track[field]; // no-op
-      // 直接调用 updateStemField 会因 oldValue === value 跳过；用底层的 begin + render。
+      if (track[field] === value) return;
       editGraph.begin(`调整 stem ${track.name} 的 ${field}`);
       track[field] = value;
       applyStemMix();
+      applyMasterFadeEnvelope();
       renderStemMixer();
       setStatus(`已调整 ${track.name} 的 ${field}：${formatStemFieldValue(field, value)}。`, "success");
     });
@@ -3294,6 +3516,19 @@
     state.continuousLyrics = event.target.checked;
     setStatus(state.continuousLyrics ? "连续歌词区已开启：相邻区域共享边界，移动会同步两侧。" : "连续歌词区已关闭：允许显式休止和空白。", "success");
   });
+  // P1.2 轮 4：A/B 试听模式切换。edited 应用 trim/fade；original 忽略非破坏参数，只保留 gain/pan/mute/solo。
+  // 切换时立即重新应用混音与包络，让用户听到差异；不记 undo（试听模式不属于编辑操作）。
+  if (elements.stemPreviewMode) {
+    elements.stemPreviewMode.addEventListener("change", event => {
+      state.stemPreviewMode = event.target.value === "original" ? "original" : "edited";
+      applyStemMix();
+      applyMasterFadeEnvelope();
+      enforceMasterTrimBoundary();
+      setStatus(state.stemPreviewMode === "original"
+        ? "已切换到原始试听：忽略裁切与淡入淡出，只保留 gain/pan/mute/solo。"
+        : "已切换到编辑后试听：应用裁切与淡入淡出参数。", "success");
+    });
+  }
   document.querySelectorAll("[data-layer]").forEach(input => input.addEventListener("change", () => {
     state.layers[input.dataset.layer] = input.checked;
     renderLayerVisibility();

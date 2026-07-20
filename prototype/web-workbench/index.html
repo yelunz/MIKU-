@@ -97,9 +97,18 @@
           <div>
             <p class="eyebrow">多轨混音 · P1.2</p>
             <h2 id="stem-mixer-title">3. 多轨伴奏混音器</h2>
-            <p class="subtitle">非破坏编辑：原始音频永不覆盖；mute / solo / gain / pan 只保存参数。主输出真实生效；鼓组 / 贝斯 / 其他乐器是占位 stem，等接入音源分离后端后才会实际播放。</p>
+            <p class="subtitle">非破坏编辑：原始音频永不覆盖；mute / solo / gain / pan / trim / fade 只保存参数。主输出真实生效；鼓组 / 贝斯 / 其他乐器是占位 stem，等接入音源分离后端后才会实际播放。</p>
           </div>
         </header>
+        <div class="stem-preview-toolbar" role="group" aria-label="A/B 试听模式">
+          <label class="compact-control" for="stem-preview-mode">试听
+            <select id="stem-preview-mode">
+              <option value="edited" selected>编辑后（应用裁切/淡入淡出）</option>
+              <option value="original">原始（忽略非破坏参数）</option>
+            </select>
+          </label>
+          <p class="stem-preview-hint">编辑后模式应用 trim 与 fade 包络；原始模式只保留 gain/pan/mute/solo，用于 A/B 对比。切换不记入撤销栈。</p>
+        </div>
         <div id="stem-mixer" class="stem-mixer" role="group" aria-label="stem 轨混音控件">
           <!-- stem 行由 renderStemMixer 动态生成 -->
         </div>
