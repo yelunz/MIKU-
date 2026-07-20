@@ -180,11 +180,27 @@ def main() -> int:
         return r.returncode
     print(f"[sidecar] wrote {sidecar_path} ({sidecar_path.stat().st_size} bytes)")
 
+    # 导出 VOCALOID6 MIDI（含 loss report sidecar）
+    v6_midi_path = out_dir / "integration-fixture-vocaloid6.mid"
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tools" / "export_vocaloid6.py"),
+         str(project_path), str(v6_midi_path)],
+        capture_output=True, text=True, encoding="utf-8"
+    )
+    if r.returncode != 0:
+        print(f"[vocaloid6] FAILED:\n{r.stderr}", file=sys.stderr)
+        return r.returncode
+    print(f"[vocaloid6] wrote {v6_midi_path} ({v6_midi_path.stat().st_size} bytes)")
+    v6_loss_path = v6_midi_path.with_suffix(v6_midi_path.suffix + ".vocaloid6-loss.json")
+    if v6_loss_path.exists():
+        print(f"[vocaloid6] wrote {v6_loss_path} ({v6_loss_path.stat().st_size} bytes)")
+
     print("\n[ok] integration fixture ready at:", out_dir)
     print("\nNext steps:")
     print(f"  1. Open {ustx_path} in OpenUtau 0.1.565")
     print(f"  2. Open {midi_path} in Synthesizer V Studio Pro 1.9.0")
     print(f"  3. Run synthv_helper_script_es5.js with sidecar {sidecar_path}")
+    print(f"  4. Open {v6_midi_path} in VOCALOID6 Editor 6.13.0 (File > Import > MIDI, choose UTF-8)")
     return 0
 
 

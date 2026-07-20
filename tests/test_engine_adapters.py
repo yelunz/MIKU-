@@ -1,4 +1,4 @@
-"""Tests for P3 engine adapters (MIDI baseline, USTX 0.7, Synthesizer V sidecar)."""
+"""Tests for P3/P3.5 engine adapters (MIDI baseline, USTX 0.7, Synthesizer V sidecar, VOCALOID6)."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ MIDI_EXPORTER = TOOLS_DIR / "export_midi.py"
 USTX_EXPORTER = TOOLS_DIR / "export_ustx.py"
 SYNTHV_SIDECAR_EXPORTER = TOOLS_DIR / "export_synthv_sidecar.py"
 SYNTHV_HELPER_SCRIPT = TOOLS_DIR / "synthv_helper_script_es5.js"
+VOCALOID6_EXPORTER = TOOLS_DIR / "export_vocaloid6.py"
 
 
 def make_minimal_project() -> dict:
@@ -421,6 +422,126 @@ class SynthvHelperScriptTests(unittest.TestCase):
         self.assertNotIn("ARA", text)
         self.assertNotIn("VoiceToMidi", text)
         self.assertNotIn("voice_to_midi", text)
+
+
+class Vocaloid6ExporterTests(unittest.TestCase):
+    def _run_export(self, tmp: Path) -> tuple[Path, Path]:
+        project_path = write_project(tmp, make_minimal_project())
+        output = tmp / "vocaloid6.mid"
+        completed = run_exporter(VOCALOID6_EXPORTER, project_path, output)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        sidecar = output.parent / (output.name + ".vocaloid6-loss.json")
+        return output, sidecar
+
+    def test_vocaloid6_exporter_outputs_valid_midi(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output, _ = self._run_export(tmp)
+            data = output.read_bytes()
+            # SMF must begin with MThd header.
+            self.assertTrue(data.startswith(b"MThd"))
+            # MThd length is 6; MThd chunk = 4 (type) + 4 (length) + 6 (data) = 14 bytes.
+            self.assertEqual(struct.unpack(">I", data[4:8])[0], 6)
+            # First MTrk chunk begins immediately after the 14-byte MThd chunk.
+            self.assertEqual(find_subsequence(data, b"MTrk"), 14)
+            # Type-1 SMF with 2 tracks (tempo + main).
+            self.assertEqual(data.count(b"MTrk"), 2)
+
+    def test_vocaloid6_exporter_writes_track_name_meta_event(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output, _ = self._run_export(tmp)
+            data = output.read_bytes()
+            # FF 03 is the Track Name meta event type.
+            # At least two occurrences: Track 0 ("VOCALOID") and Track 1 ("Main Vocal").
+            self.assertGreaterEqual(data.count(b"\xFF\x03"), 2)
+
+    def test_vocaloid6_exporter_track_name_is_vocal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output, _ = self._run_export(tmp)
+            data = output.read_bytes()
+            # Track 0 name "VOCALOID" and Track 1 name "Main Vocal" must be
+            # present as ASCII bytes inside the FF 03 meta events.
+            self.assertIn(b"VOCALOID", data)
+            self.assertIn(b"Main Vocal", data)
+
+    def test_vocaloid6_exporter_outputs_loss_report_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output, sidecar = self._run_export(tmp)
+            self.assertTrue(sidecar.exists(), f"Sidecar loss report not written at {sidecar}")
+            # Sidecar must be valid JSON.
+            report = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertIsInstance(report, dict)
+
+    def test_vocaloid6_loss_report_contains_required_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            _, sidecar = self._run_export(tmp)
+            report = json.loads(sidecar.read_text(encoding="utf-8"))
+            for key in (
+                "schema_version",
+                "source_project_schema",
+                "target_editor",
+                "export_path",
+                "encoding",
+                "track_naming",
+                "lost_fields",
+                "preserved_fields",
+                "user_workflow",
+            ):
+                self.assertIn(key, report, f"Missing required key: {key}")
+            self.assertEqual(
+                report["schema_version"], "miku-vocaloid6-loss-report/0.1.0"
+            )
+            self.assertEqual(
+                report["source_project_schema"], "miku-workbench-project/0.3.0"
+            )
+
+    def test_vocaloid6_loss_report_lists_all_lost_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            _, sidecar = self._run_export(tmp)
+            report = json.loads(sidecar.read_text(encoding="utf-8"))
+            lost = report["lost_fields"]
+            self.assertIsInstance(lost, list)
+            self.assertGreater(len(lost), 0)
+            field_names = {item["field"] for item in lost}
+            for required in (
+                "syllable.default_reading",
+                "syllable.reading_override",
+                "note.confidence",
+                "note.source",
+                "note.stem_id",
+                "rests",
+                "source_audio",
+                "tempo_map.first_beat_seconds",
+            ):
+                self.assertIn(required, field_names, f"Missing lost field: {required}")
+            # Every lost field entry must carry a human-readable reason.
+            for item in lost:
+                self.assertIn("reason", item)
+                self.assertTrue(item["reason"], "reason must be non-empty")
+
+    def test_vocaloid6_loss_report_target_is_6_13_0(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            _, sidecar = self._run_export(tmp)
+            report = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertIn("6.13.0", report["target_editor"])
+
+    def test_vocaloid6_exporter_loss_report_to_stderr(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            project_path = write_project(tmp, make_minimal_project())
+            completed = run_exporter(
+                VOCALOID6_EXPORTER, project_path, "out.mid", "--loss-report"
+            )
+            self.assertEqual(completed.returncode, 0)
+            self.assertIn("confidence", completed.stderr)
+            self.assertIn("VOCALOID6", completed.stderr)
+            self.assertIn("6.13.0", completed.stderr)
 
 
 class AllExportersEmptyProjectTests(unittest.TestCase):

@@ -1,0 +1,67 @@
+{
+  "schema_version": "miku-vocaloid6-loss-report/0.1.0",
+  "source_project_schema": "miku-workbench-project/0.3.0",
+  "target_editor": "vocaloid6-editor-6.13.0-standalone",
+  "export_path": "MIDI baseline degradation",
+  "encoding": "UTF-8 (VOCALOID6 V6.2+ supports UTF-8 lyrics; user must select UTF-8 in Import dialog)",
+  "track_naming": "Track 0: VOCALOID, Track 1: Main Vocal (via FF 03 meta event)",
+  "lost_fields": [
+    {
+      "field": "syllable.default_reading",
+      "reason": "VOCALOID6 uses its own phoneme system; only lyric text is preserved via MIDI lyric meta event"
+    },
+    {
+      "field": "syllable.reading_override",
+      "reason": "same as above"
+    },
+    {
+      "field": "note.confidence",
+      "reason": "MIDI baseline does not carry confidence"
+    },
+    {
+      "field": "note.source",
+      "reason": "MIDI baseline does not distinguish manual/transcription/generation"
+    },
+    {
+      "field": "note.stem_id",
+      "reason": "VOCALOID6 imports single vocal track; multi-stem info lost"
+    },
+    {
+      "field": "rests",
+      "reason": "VOCALOID6 expresses rests as gaps between notes, no explicit rest event"
+    },
+    {
+      "field": "lyrics (LyricRegion container)",
+      "reason": "Only syllable-level lyrics are written to MIDI; LyricRegion grouping lost"
+    },
+    {
+      "field": "source_audio",
+      "reason": "MIDI does not carry audio references"
+    },
+    {
+      "field": "tempo_map.first_beat_seconds",
+      "reason": "VOCALOID6 assumes first tempo at position 0"
+    },
+    {
+      "field": "stem_tracks non-destructive params",
+      "reason": "VOCALOID6 does not support stem mixer"
+    }
+  ],
+  "preserved_fields": [
+    "note.pitch (as MIDI tone)",
+    "note.velocity (as MIDI note on velocity 0-127)",
+    "note timing (via anchors tick)",
+    "syllable.text (as MIDI lyric meta event FF 05)",
+    "tempo_map.bpm (as tempo meta event FF 51)",
+    "time signature (as FF 58)"
+  ],
+  "user_workflow": [
+    "1. Open VOCALOID6 Editor 6.13.0 Standalone",
+    "2. File > Import > MIDI",
+    "3. Select the exported .mid file",
+    "4. In encoding dialog, choose UTF-8",
+    "5. Confirm track name 'Main Vocal' is selected as vocal track",
+    "6. Visually verify notes and lyrics in piano roll",
+    "7. Manually adjust phonemes for each note using VOCALOID6 phoneme panel"
+  ]
+}
