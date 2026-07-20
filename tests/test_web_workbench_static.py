@@ -220,6 +220,66 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("state.lyricDrag", self.javascript)
         self.assertIn("cancelLyricBlockDrag()", self.javascript)
 
+    def test_zoom_anchor_and_playhead_auto_scroll_are_present(self) -> None:
+        # 缩放锚点：zoomRange input 事件中以"视口中心时间点"为锚保持位置
+        self.assertIn("centerTime", self.javascript)
+        self.assertIn("newCenterPx", self.javascript)
+        # Ctrl/Cmd + 滚轮在时间轴上缩放，以鼠标位置为锚点
+        self.assertIn('event.ctrlKey || event.metaKey', self.javascript)
+        self.assertIn("pointerTime", self.javascript)
+        self.assertIn("newPointerAbsolutePx", self.javascript)
+        # 自动滚动：播放头进入视口右 18% 时滚动跟随
+        self.assertIn("autoScrollToPlayhead", self.javascript)
+        self.assertIn("viewportWidth * 0.82", self.javascript)
+        self.assertIn("viewportWidth * 0.18", self.javascript)
+        # 用户主动滚动后 1.5 秒内暂停自动跟随
+        self.assertIn("state.manualScrollAt", self.javascript)
+        self.assertIn("state.programmaticScroll", self.javascript)
+        self.assertIn("performance.now() - state.manualScrollAt < 1500", self.javascript)
+        # wheel 监听必须显式 non-passive 才能 preventDefault
+        self.assertIn("{ passive: false }", self.javascript)
+
+    def test_field_level_locking_is_present(self) -> None:
+        # 字段级锁定数据模型与工具函数
+        self.assertIn("state.lockedFields", self.javascript)
+        self.assertIn("function lockKey", self.javascript)
+        self.assertIn("function isLocked", self.javascript)
+        self.assertIn("function setLocked", self.javascript)
+        self.assertIn("function serializeLockedFields", self.javascript)
+        self.assertIn("function refreshLockToggle", self.javascript)
+        # 三种锁定对象类型
+        self.assertIn('"lyric", id', self.javascript)
+        self.assertIn('"rest", id', self.javascript)
+        self.assertIn('"chord", key', self.javascript)
+        # 锁定状态在撤销/重做快照中保存
+        self.assertIn("lockedFields: Array.from(state.lockedFields)", self.javascript)
+        self.assertIn("state.lockedFields = new Set(Array.isArray(snapshot.lockedFields)", self.javascript)
+        # 锁定 UI：HTML 中的 checkbox 与 JS 引用
+        self.assertIn('id="lock-lyric-checkbox"', self.html)
+        self.assertIn('id="lock-rest-checkbox"', self.html)
+        self.assertIn('id="lock-chord-checkbox"', self.html)
+        self.assertIn("lockLyricCheckbox", self.javascript)
+        self.assertIn("lockRestCheckbox", self.javascript)
+        self.assertIn("lockChordCheckbox", self.javascript)
+        # 锁定 toggle 事件绑定
+        self.assertIn('editGraph.begin(`锁定歌词', self.javascript)
+        self.assertIn('editGraph.begin(`锁定休止', self.javascript)
+        self.assertIn('editGraph.begin(`锁定和弦', self.javascript)
+        # 锁定状态在删除时同步清除
+        self.assertIn('setLocked("lyric", state.selectedLyricId, false)', self.javascript)
+        self.assertIn('setLocked("rest", id, false)', self.javascript)
+        # 锁定阻止删除/恢复原值
+        self.assertIn("此歌词已锁定", self.javascript)
+        self.assertIn("此休止已锁定", self.javascript)
+        self.assertIn("此和弦修正已锁定", self.javascript)
+        # 项目导出/导入包含 locked_fields
+        self.assertIn("locked_fields: serializeLockedFields()", self.javascript)
+        self.assertIn("editing.locked_fields", self.javascript)
+        # 渲染时显示锁定状态
+        self.assertIn('block.classList.add("locked")', self.javascript)
+        # 0.1.0 迁移时清空锁定
+        self.assertIn("0.1.0 项目没有锁定字段概念", self.javascript)
+
 
 if __name__ == "__main__":
     unittest.main()

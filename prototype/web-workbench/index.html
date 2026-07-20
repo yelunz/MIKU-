@@ -150,6 +150,7 @@
               <button id="cancel-lyric-edit-button" type="button" hidden>取消编辑</button>
               <button id="delete-lyric-button" class="danger" type="button" hidden>删除</button>
             </div>
+            <label class="inline-check lock-toggle" id="lock-lyric-wrapper" hidden><input id="lock-lyric-checkbox" type="checkbox"> 锁定此歌词（防止重生成覆盖）</label>
           </section>
 
           <section id="chord-inspector" class="inspector-section" hidden>
@@ -162,6 +163,7 @@
               <button id="save-chord-button" class="primary" type="button">保存修正</button>
               <button id="restore-chord-button" type="button">恢复分析值</button>
             </div>
+            <label class="inline-check lock-toggle" id="lock-chord-wrapper" hidden><input id="lock-chord-checkbox" type="checkbox"> 锁定此和弦修正（防止重生成覆盖）</label>
           </section>
 
           <section id="rest-inspector" class="inspector-section" hidden>
@@ -171,6 +173,7 @@
               <button id="convert-rest-button" class="primary" type="button" hidden>转为显式休止</button>
               <button id="delete-rest-button" class="danger" type="button" hidden>删除休止</button>
             </div>
+            <label class="inline-check lock-toggle" id="lock-rest-wrapper" hidden><input id="lock-rest-checkbox" type="checkbox"> 锁定此休止（防止重生成覆盖）</label>
             <p class="muted small-note">休止是显式数据：保存后会在相邻歌词之间显示明确的留白。删除后恢复为未分配空段。</p>
           </section>
 

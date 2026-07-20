@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-20T18:00:00+08:00",
+  "last_updated": "2026-07-20T19:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -91,7 +91,7 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p1.1-edit-graph-and-lyric-drag",
+      "status": "runnable-interaction-prototype-p1.1-zoom-anchor-auto-scroll-and-field-lock",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4",
@@ -104,7 +104,10 @@
         "legacy-0.1.0-project-migration",
         "edit-graph-undo-redo-with-ctrl-z-and-ctrl-shift-z",
         "lyric-block-whole-drag-with-shared-anchor-detach",
-        "lyric-block-edge-stretch-start-and-end"
+        "lyric-block-edge-stretch-start-and-end",
+        "zoom-anchor-with-viewport-center-on-slider-and-pointer-on-ctrl-wheel",
+        "playhead-auto-scroll-with-1.5s-user-scroll-grace",
+        "field-level-lock-on-lyric-rest-and-chord-with-undo-and-persistence"
       ],
       "verified_environment": "windows-edge"
     }
@@ -182,10 +185,8 @@
     "docs/MULTITRACK_COMPOSITION_DESIGN.md"
   ],
   "next_actions": [
-    "implement-p1.1-zoom-anchor-and-playhead-auto-scroll",
-    "implement-p1.1-field-level-lock-against-regeneration",
-    "run-p1.1-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-and-project-roundtrip",
-    "define-p1.2-sample-ppq-anchor-multitrack-project-schema",
+    "run-p1.1-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-and-project-roundtrip",
+    "implement-p1.2-stem-track-data-model-and-ui-skeleton-with-mute-solo-gain-pan",
     "build-editable-note-and-drum-candidate-piano-roll-spike",
     "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
     "wrap-stable-multitrack-workbench-in-minimal-electron-validation-shell",

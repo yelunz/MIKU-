@@ -42,6 +42,15 @@
     // 歌词块整体拖动/拉伸状态。拖动阈值超过 4 像素才进入拖动模式，
     // 否则保留原点击行为（进入编辑器）。
     lyricDrag: null,
+    // 字段级锁定：防止未来重生成覆盖用户手工确认的字段。
+    // 格式 "lyric:lyric-1" / "rest:rest-1" / "chord:<chordKey>"。
+    lockedFields: new Set(),
+    // 用户最近一次手动滚动时间戳。播放头自动跟随在用户滚动后暂停 1.5 秒，
+    // 避免抢走用户的主动定位。
+    manualScrollAt: 0,
+    // 程序触发的滚动标记。autoScrollToPlayhead 修改 scrollLeft 时设为 true，
+    // scroll 事件据此区分"程序滚动"与"用户滚动"。
+    programmaticScroll: false,
   };
 
   // ---- EditGraph：撤销/重做栈（第一版）-----------------------------------------
@@ -69,6 +78,8 @@
         nextLyricId: state.nextLyricId,
         nextRestId: state.nextRestId,
         nextAnchorId: state.nextAnchorId,
+        // 锁定状态也是用户编辑的一部分，撤销/重做时需要一起恢复。
+        lockedFields: Array.from(state.lockedFields),
       };
     },
 
@@ -83,6 +94,7 @@
       state.nextLyricId = snapshot.nextLyricId;
       state.nextRestId = snapshot.nextRestId;
       state.nextAnchorId = snapshot.nextAnchorId;
+      state.lockedFields = new Set(Array.isArray(snapshot.lockedFields) ? snapshot.lockedFields : []);
       // 恢复后清除选中编辑器视图，避免引用已不存在的 region
       elements.lyricText.value = "";
       elements.lyricLanguage.value = "zh";
@@ -186,6 +198,12 @@
     undoButton: byId("undo-button"),
     redoButton: byId("redo-button"),
     exactData: byId("exact-data"),
+    lockLyricWrapper: byId("lock-lyric-wrapper"),
+    lockLyricCheckbox: byId("lock-lyric-checkbox"),
+    lockChordWrapper: byId("lock-chord-wrapper"),
+    lockChordCheckbox: byId("lock-chord-checkbox"),
+    lockRestWrapper: byId("lock-rest-wrapper"),
+    lockRestCheckbox: byId("lock-rest-checkbox"),
   };
 
   function setStatus(message, kind = "") {
@@ -327,6 +345,43 @@
     }
   }
 
+  // ---- 字段级锁定 -------------------------------------------------------------
+  // 设计：
+  //   - 锁定 key 形如 "lyric:lyric-1" / "rest:rest-1" / "chord:<chordKey>"
+  //   - 用户主动操作（编辑、删除、解锁）始终允许；锁定只阻止"自动重生成"覆盖。
+  //   - 当前阶段没有自动重生成，锁定主要承担两件事：
+  //     1) UI 高亮显示用户已确认的字段；
+  //     2) 在删除/恢复原值等会丢失用户确认结果的操作前提示先解锁。
+  //   - 锁定状态随 editGraph 快照保存，撤销/重做时一并恢复。
+  function lockKey(type, id) {
+    return `${type}:${id}`;
+  }
+
+  function isLocked(type, id) {
+    return state.lockedFields.has(lockKey(type, id));
+  }
+
+  function setLocked(type, id, locked) {
+    const key = lockKey(type, id);
+    if (locked) state.lockedFields.add(key);
+    else state.lockedFields.delete(key);
+  }
+
+  function serializeLockedFields() {
+    return Array.from(state.lockedFields).sort();
+  }
+
+  function refreshLockToggle(wrapper, checkbox, type, id) {
+    if (!wrapper || !checkbox) return;
+    if (!id) {
+      wrapper.hidden = true;
+      checkbox.checked = false;
+      return;
+    }
+    wrapper.hidden = false;
+    checkbox.checked = isLocked(type, id);
+  }
+
   // ---- 选区与吸附 --------------------------------------------------------------
 
   function topTempoCandidate() {
@@ -453,10 +508,15 @@
     editGraph.undoStack = [];
     editGraph.redoStack = [];
     updateUndoRedoButtons();
+    // 锁定状态也是项目编辑历史的一部分，重置时一并清空。
+    state.lockedFields = new Set();
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
     elements.restInspector.hidden = true;
+    if (elements.lockLyricWrapper) elements.lockLyricWrapper.hidden = true;
+    if (elements.lockChordWrapper) elements.lockChordWrapper.hidden = true;
+    if (elements.lockRestWrapper) elements.lockRestWrapper.hidden = true;
     elements.exactData.textContent = "选择和弦或歌词区域后显示。";
   }
 
@@ -575,6 +635,7 @@
       const block = makeBlock("chord-block", effectiveChordLabel(window), start, end, `${start.toFixed(3)}–${end.toFixed(3)} 秒 · 置信度 ${titleConfidence} · 点击修正`);
       if (state.chordOverrides[key]) block.classList.add("corrected");
       if (state.selectedChordKey === key) block.classList.add("selected");
+      if (isLocked("chord", key)) block.classList.add("locked");
       block.addEventListener("click", () => selectChord(window));
       elements.chordsLane.appendChild(block);
     });
@@ -589,7 +650,8 @@
     const confidence = Number.isFinite(Number(window.confidence)) ? Number(window.confidence) : (candidate ? Number(candidate.confidence) : NaN);
     const confidenceText = Number.isFinite(confidence) ? `${(confidence * 100).toFixed(1)}%` : "未提供";
     elements.chordDetail.textContent = `分析值：${candidate ? candidate.label : "无"} · ${finiteNumber(window.start_seconds).toFixed(3)}–${finiteNumber(window.end_seconds).toFixed(3)} 秒 · 置信度 ${confidenceText} · 来源 ${state.analysis.analysis.chords.source || "unknown"}`;
-    elements.exactData.textContent = JSON.stringify({ source: state.analysis.analysis.chords.source, window, override: state.chordOverrides[key] || null }, null, 2);
+    elements.exactData.textContent = JSON.stringify({ source: state.analysis.analysis.chords.source, window, override: state.chordOverrides[key] || null, locked: isLocked("chord", key) }, null, 2);
+    refreshLockToggle(elements.lockChordWrapper, elements.lockChordCheckbox, "chord", key);
     setSelection(finiteNumber(window.start_seconds), finiteNumber(window.end_seconds));
     renderChords();
   }
@@ -640,18 +702,22 @@
       appendUnassigned(sampleToSeconds(cursorSample), startSeconds);
       if (kind === "lyric") {
         const language = region.language === "ja" ? "日" : "中";
-        const block = makeBlock("lyric-block", `${language} · ${region.text}`, startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 点击编辑 · 拖动移动 · 边缘拉伸`);
+        const lockMarker = isLocked("lyric", region.id) ? " · 已锁定" : "";
+        const block = makeBlock("lyric-block", `${language} · ${region.text}`, startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 点击编辑 · 拖动移动 · 边缘拉伸${lockMarker}`);
         block.style.removeProperty("width");
         block.style.right = percentAt(state.duration - endSeconds);
         if (state.selectedLyricId === region.id) block.classList.add("selected");
+        if (isLocked("lyric", region.id)) block.classList.add("locked");
         // 用 pointerdown 替代 click，以便区分"点击编辑"和"拖动移动/拉伸"。
         block.addEventListener("pointerdown", event => beginLyricBlockDrag(event, region));
         elements.lyricsLane.appendChild(block);
       } else {
-        const block = makeBlock("rest-block explicit-rest", "休止", startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 显式休止；点击编辑`);
+        const lockMarker = isLocked("rest", region.id) ? " · 已锁定" : "";
+        const block = makeBlock("rest-block explicit-rest", "休止", startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 显式休止；点击编辑${lockMarker}`);
         block.style.removeProperty("width");
         block.style.right = percentAt(state.duration - endSeconds);
         if (state.selectedRestId === region.id) block.classList.add("selected");
+        if (isLocked("rest", region.id)) block.classList.add("locked");
         block.addEventListener("click", () => editRest(region.id));
         elements.lyricsLane.appendChild(block);
       }
@@ -849,6 +915,7 @@
     elements.convertRestButton.onclick = () => convertSelectionToRest();
     hideLyricEditor();
     hideChordInspector();
+    refreshLockToggle(elements.lockRestWrapper, elements.lockRestCheckbox, "rest", null);
     renderLyrics();
   }
 
@@ -866,10 +933,13 @@
       id: region.id,
       language: region.language,
       text: region.text,
+      locked: isLocked("lyric", region.id),
       start_anchor: state.anchors.get(region.startAnchorId),
       end_anchor: state.anchors.get(region.endAnchorId),
     }, null, 2);
     hideRestInspector();
+    hideChordInspector();
+    refreshLockToggle(elements.lockLyricWrapper, elements.lockLyricCheckbox, "lyric", id);
     renderLyrics();
   }
 
@@ -889,11 +959,13 @@
     elements.exactData.textContent = JSON.stringify({
       id: rest.id,
       kind: rest.kind,
+      locked: isLocked("rest", rest.id),
       start_anchor: state.anchors.get(rest.startAnchorId),
       end_anchor: state.anchors.get(rest.endAnchorId),
     }, null, 2);
     hideLyricEditor();
     hideChordInspector();
+    refreshLockToggle(elements.lockRestWrapper, elements.lockRestCheckbox, "rest", id);
     renderLyrics();
   }
 
@@ -902,6 +974,7 @@
     elements.cancelLyricEditButton.hidden = true;
     elements.deleteLyricButton.hidden = true;
     if (clearText) elements.lyricText.value = "";
+    refreshLockToggle(elements.lockLyricWrapper, elements.lockLyricCheckbox, "lyric", null);
     renderLyrics();
   }
 
@@ -909,14 +982,17 @@
     elements.cancelLyricEditButton.hidden = true;
     elements.deleteLyricButton.hidden = true;
     elements.lyricText.value = "";
+    refreshLockToggle(elements.lockLyricWrapper, elements.lockLyricCheckbox, "lyric", null);
   }
 
   function hideRestInspector() {
     elements.restInspector.hidden = true;
+    refreshLockToggle(elements.lockRestWrapper, elements.lockRestCheckbox, "rest", null);
   }
 
   function hideChordInspector() {
     elements.chordInspector.hidden = true;
+    refreshLockToggle(elements.lockChordWrapper, elements.lockChordCheckbox, "chord", null);
   }
 
   function setSelection(start, end, announce = true, useSnap = false, bypassSnap = false) {
@@ -1061,10 +1137,46 @@
     if (state.audioUrl) {
       elements.playhead.hidden = false;
       elements.playhead.style.left = percentAt(current);
+      // 播放时自动滚动跟随播放头，避免播放头跑出视口右侧。
+      // 用户最近 1.5 秒内手动滚动过则暂停自动跟随，让用户能自由定位。
+      if (!elements.audio.paused && state.analysis) {
+        autoScrollToPlayhead(current);
+      }
     } else {
       elements.playhead.hidden = true;
     }
     elements.playButton.textContent = elements.audio.paused ? "播放" : "暂停";
+  }
+
+  // 自动滚动策略：
+  //   - 时间轴内容未溢出视口时不动作；
+  //   - 播放头进入视口右 18% 区域时，把 scrollLeft 推到"播放头位于视口 18% 处"；
+  //   - 播放头落在视口左侧之外时，向前追赶到"播放头位于视口 10% 处"；
+  //   - 用户最近 1.5 秒内手动滚动过则跳过，避免抢走用户的主动定位。
+  function autoScrollToPlayhead(currentTime) {
+    const scroll = elements.timelineScroll;
+    const contentWidth = elements.timelineContent.offsetWidth;
+    const viewportWidth = scroll.clientWidth;
+    if (!contentWidth || contentWidth <= viewportWidth) return;
+    if (state.manualScrollAt && performance.now() - state.manualScrollAt < 1500) return;
+    const playheadPx = (currentTime / state.duration) * contentWidth;
+    const viewportLeft = scroll.scrollLeft;
+    const viewportRight = viewportLeft + viewportWidth;
+    const rightThreshold = viewportLeft + viewportWidth * 0.82;
+    let target = null;
+    if (playheadPx > rightThreshold) {
+      target = playheadPx - viewportWidth * 0.18;
+    } else if (playheadPx < viewportLeft) {
+      target = playheadPx - viewportWidth * 0.10;
+    }
+    if (target === null) return;
+    const clamped = Math.max(0, Math.min(contentWidth - viewportWidth, target));
+    if (Math.abs(scroll.scrollLeft - clamped) < 1) return;
+    // 标记为程序滚动，让 scroll 事件知道不要更新 manualScrollAt。
+    state.programmaticScroll = true;
+    scroll.scrollLeft = clamped;
+    // 同步重置标记，下一次用户滚动事件到来时再正常记录。
+    setTimeout(() => { state.programmaticScroll = false; }, 0);
   }
 
   // ---- 音频关联 ----------------------------------------------------------------
@@ -1266,8 +1378,14 @@
 
   function deleteLyric() {
     if (!state.selectedLyricId) return;
+    if (isLocked("lyric", state.selectedLyricId)) {
+      setStatus("此歌词已锁定；请先在检查器取消锁定再删除。", "error");
+      return;
+    }
     editGraph.begin(`删除歌词 ${state.selectedLyricId}`);
     state.lyrics = state.lyrics.filter(region => region.id !== state.selectedLyricId);
+    // 锁定状态随对象一起清除，避免遗留无主锁定项。
+    setLocked("lyric", state.selectedLyricId, false);
     pruneAnchors();
     endLyricEdit(true);
     setStatus("歌词区域已删除；引用的 anchor 已清理。", "success");
@@ -1321,8 +1439,13 @@
   }
 
   function deleteRest(id) {
+    if (isLocked("rest", id)) {
+      setStatus("此休止已锁定；请先在检查器取消锁定再删除。", "error");
+      return;
+    }
     editGraph.begin(`删除休止 ${id}`);
     state.rests = state.rests.filter(rest => rest.id !== id);
+    setLocked("rest", id, false);
     pruneAnchors();
     hideRestInspector();
     renderLyrics();
@@ -1456,8 +1579,14 @@
   function restoreChord() {
     const window = selectedChordWindow();
     if (!window) return;
+    const key = chordKey(window);
+    if (isLocked("chord", key)) {
+      setStatus("此和弦修正已锁定；请先在检查器取消锁定再恢复分析值。", "error");
+      return;
+    }
     editGraph.begin("恢复和弦");
-    delete state.chordOverrides[chordKey(window)];
+    delete state.chordOverrides[key];
+    setLocked("chord", key, false);
     elements.chordLabel.value = topChord(window) ? topChord(window).label : "";
     setStatus("已恢复原分析候选。", "success");
     selectChord(window);
@@ -1509,6 +1638,7 @@
           kind: rest.kind,
         })),
         chord_overrides: state.chordOverrides,
+        locked_fields: serializeLockedFields(),
         preferences: { snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics },
       },
     };
@@ -1604,6 +1734,27 @@
         if (overlap) throw new Error("歌词或休止区域之间存在重叠。");
       }
     }
+
+    // 加载字段级锁定：只保留指向当前项目中仍存在的 lyric/rest/chord 的项。
+    const rawLocked = Array.isArray(editing.locked_fields) ? editing.locked_fields : [];
+    const validLyricIds = new Set(lyrics.map(region => region.id));
+    const validRestIds = new Set(rests.map(rest => rest.id));
+    const validChordKeys = new Set(analysis.analysis.chords.windows.map(window => chordKey(window)));
+    const lockedFields = new Set();
+    rawLocked.forEach(entry => {
+      if (typeof entry !== "string") return;
+      // chordKey 本身含 ":"，所以这里只在第一个冒号处分割。
+      const colonIndex = entry.indexOf(":");
+      if (colonIndex < 0) return;
+      const type = entry.slice(0, colonIndex);
+      const id = entry.slice(colonIndex + 1);
+      if (!type || !id) return;
+      if (type === "lyric" && validLyricIds.has(id)) lockedFields.add(entry);
+      else if (type === "rest" && validRestIds.has(id)) lockedFields.add(entry);
+      else if (type === "chord" && validChordKeys.has(id)) lockedFields.add(entry);
+      // 静默丢弃指向已删除对象的锁定项，不抛错。
+    });
+    state.lockedFields = lockedFields;
   }
 
   // 把 0.1.0 项目的秒数边界迁移到 0.2.0 的 anchor 表。
@@ -1633,6 +1784,8 @@
     state.nextAnchorId = 1;
     state.nextLyricId = 1;
     state.nextRestId = 1;
+    // 0.1.0 项目没有锁定字段概念；迁移时清空，避免上一项目的锁定残留。
+    state.lockedFields = new Set();
 
     let previousEndAnchorId = null;
     sortedLegacy.forEach((legacy, index) => {
@@ -1917,9 +2070,91 @@
   elements.saveChordButton.addEventListener("click", saveChordOverride);
   elements.restoreChordButton.addEventListener("click", restoreChord);
 
+  // 字段级锁定 toggle：用户主动勾选/取消即视为一次提交，记入撤销栈。
+  if (elements.lockLyricCheckbox) {
+    elements.lockLyricCheckbox.addEventListener("change", () => {
+      if (!state.selectedLyricId) return;
+      const id = state.selectedLyricId;
+      editGraph.begin(`锁定歌词 ${id}`);
+      setLocked("lyric", id, elements.lockLyricCheckbox.checked);
+      renderLyrics();
+      editLyric(id);
+      setStatus(elements.lockLyricCheckbox.checked ? `已锁定歌词 ${id}；重生成不会覆盖此字段。` : `已取消锁定歌词 ${id}。`, "success");
+    });
+  }
+  if (elements.lockRestCheckbox) {
+    elements.lockRestCheckbox.addEventListener("change", () => {
+      if (!state.selectedRestId) return;
+      const id = state.selectedRestId;
+      editGraph.begin(`锁定休止 ${id}`);
+      setLocked("rest", id, elements.lockRestCheckbox.checked);
+      renderLyrics();
+      editRest(id);
+      setStatus(elements.lockRestCheckbox.checked ? `已锁定休止 ${id}。` : `已取消锁定休止 ${id}。`, "success");
+    });
+  }
+  if (elements.lockChordCheckbox) {
+    elements.lockChordCheckbox.addEventListener("change", () => {
+      const window = selectedChordWindow();
+      if (!window) return;
+      const key = chordKey(window);
+      editGraph.begin(`锁定和弦 ${key}`);
+      setLocked("chord", key, elements.lockChordCheckbox.checked);
+      renderChords();
+      selectChord(window);
+      setStatus(elements.lockChordCheckbox.checked ? `已锁定和弦修正 ${key}。` : `已取消锁定和弦 ${key}。`, "success");
+    });
+  }
+
   elements.zoomRange.addEventListener("input", event => {
+    if (!state.analysis) {
+      state.zoom = Number(event.target.value);
+      return;
+    }
+    // 缩放锚点：保持"视口中心对应的时间点"在缩放后仍位于视口中心。
+    // 这样用户在时间轴中部缩放时不会丢失当前位置感。
+    const scroll = elements.timelineScroll;
+    const prevContentWidth = elements.timelineContent.offsetWidth || 1;
+    const viewportWidth = scroll.clientWidth;
+    const centerPx = scroll.scrollLeft + viewportWidth / 2;
+    const centerTime = (centerPx / prevContentWidth) * state.duration;
     state.zoom = Number(event.target.value);
     renderAll();
+    const newContentWidth = elements.timelineContent.offsetWidth || 1;
+    const newCenterPx = (centerTime / state.duration) * newContentWidth;
+    scroll.scrollLeft = Math.max(0, Math.min(Math.max(0, newContentWidth - viewportWidth), newCenterPx - viewportWidth / 2));
+  });
+
+  // Ctrl/Cmd + 滚轮在时间轴上缩放，以鼠标位置为锚点。
+  // 这是 DAW 类编辑器的常见手感：鼠标指向哪里，缩放就以哪里为定点。
+  elements.timelineScroll.addEventListener("wheel", event => {
+    if (!state.analysis || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    const scroll = elements.timelineScroll;
+    const rect = scroll.getBoundingClientRect();
+    const pointerOffsetX = event.clientX - rect.left;  // 视口内 X
+    const prevContentWidth = elements.timelineContent.offsetWidth || 1;
+    const pointerAbsolutePx = scroll.scrollLeft + pointerOffsetX;
+    const pointerTime = (pointerAbsolutePx / prevContentWidth) * state.duration;
+    const minZoom = Number(elements.zoomRange.min);
+    const maxZoom = Number(elements.zoomRange.max);
+    const delta = -Math.sign(event.deltaY) * 4;
+    const newZoom = clamp(state.zoom + delta, minZoom, maxZoom);
+    if (newZoom === state.zoom) return;
+    state.zoom = newZoom;
+    elements.zoomRange.value = String(state.zoom);
+    renderAll();
+    // 缩放后调整 scrollLeft，使"鼠标位置对应的时间点"仍位于鼠标视口 X 处。
+    const newContentWidth = elements.timelineContent.offsetWidth || 1;
+    const newPointerAbsolutePx = (pointerTime / state.duration) * newContentWidth;
+    scroll.scrollLeft = Math.max(0, Math.min(Math.max(0, newContentWidth - scroll.clientWidth), newPointerAbsolutePx - pointerOffsetX));
+  }, { passive: false });
+
+  // 用户主动滚动时间轴时记录时间戳，让自动跟随暂停 1.5 秒。
+  // 区分用户滚动与程序滚动：autoScrollToPlayhead 修改 scrollLeft 时会置 programmaticScroll=true。
+  elements.timelineScroll.addEventListener("scroll", () => {
+    if (state.programmaticScroll) return;
+    state.manualScrollAt = performance.now();
   });
   elements.snapGrid.addEventListener("change", event => {
     state.snapMode = event.target.value;

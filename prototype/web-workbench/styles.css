@@ -49,6 +49,12 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover:not(:disabled) { background: var(--accent-strong); }
 button.danger { color: var(--danger); }
 #undo-button, #redo-button { min-width: 4.5rem; }
+.lock-toggle { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.55rem; padding: 0.45rem 0.55rem; border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 0.5rem; background: var(--accent-soft); color: var(--accent-strong); font-size: 0.74rem; font-weight: 650; }
+.lock-toggle input { width: auto; }
+.lock-toggle:has(input:checked) { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border-style: solid; }
+.lyric-block.locked, .rest-block.locked, .chord-block.locked { border-width: 2px; border-style: double; }
+.lyric-block.locked::after { content: "🔒"; position: absolute; top: 0.15rem; right: 0.25rem; font-size: 0.6rem; }
+.lyric-block.locked { padding-right: 0.9rem; }
 input, select, textarea { width: 100%; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface-soft); padding: 0.55rem 0.65rem; }
 textarea { resize: vertical; }
 code, pre, output { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
