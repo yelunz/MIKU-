@@ -11,6 +11,10 @@
   const PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0";
   const ANALYSIS_SCHEMA = "0.1.0";
   const PPQ = 960;
+  // P5：新手引导页 localStorage key。"true" 表示用户已完成引导，下次直接进工作台。
+  // 用户在引导页勾选"不再显示"或加载示例项目后写入；点击"跳过"时按勾选状态决定是否写入。
+  // onboarding.js 也会读这个 key 决定首屏可见性，两处独立读写但 key 一致。
+  const ONBOARDING_KEY = "miku-onboarding-completed";
   // sample 是音频定位的权威基准。当 sample 与 tick 出现数值漂移时以 sample 为准。
   const ANCHOR_TOLERANCE_SECONDS = 0.005;
 
@@ -609,6 +613,16 @@
     projectFile: byId("project-file"),
     importProjectButton: byId("import-project-button"),
     exportProjectButton: byId("export-project-button"),
+    // P5：新手引导页元素。onboarding-panel 在 import-panel 之前，
+    // 首次访问时显示，用户完成或跳过后隐藏，下次直接进 import-panel。
+    onboardingPanel: byId("onboarding-panel"),
+    importPanel: document.querySelector(".import-panel"),
+    loadExampleButton: byId("load-example-button"),
+    skipOnboardingButton: byId("skip-onboarding-button"),
+    dontShowAgain: byId("dont-show-again"),
+    // P1.3 步骤 4：librosa 分析按钮（仅 Electron 模式可见，由 capabilities.analyzeAudio 控制）。
+    librosaAnalysisRow: byId("librosa-analysis-row"),
+    librosaAnalyzeButton: byId("librosa-analyze-button"),
     status: byId("status"),
     workbench: byId("workbench"),
     audio: byId("audio-player"),
@@ -1093,6 +1107,124 @@
     setStatus(`已载入分析：${analysis.source_audio.filename || "未命名音频"}。和弦与段落是可修正候选。`, "success");
     renderAll();
     checkAudioAssociation();
+  }
+
+  // ---- P5：新手引导页 ---------------------------------------------------------
+  // 设计：渐进式呈现。引导页只是首屏，不隐藏专业数据；用户跳过后直接进完整工作台。
+  //   - shouldShowOnboarding：localStorage 未标记 "true" 时返回 true（首次访问或被清除时）。
+  //   - showOnboarding：隐藏 import-panel 与 workbench，只显示 onboarding-panel。
+  //   - completeOnboarding(dontShowAgain)：隐藏 onboarding-panel 显示 import-panel；
+  //     当 dontShowAgain 为 true 时写入 localStorage，下次直接进工作台。
+  //   - loadExampleProject：尝试 fetch 示例分析 JSON + 关联示例 WAV；
+  //     成功后调用 applyAnalysis 并完成引导。
+  //   - onboarding.js 是独立 IIFE，负责读 localStorage 决定首屏可见性 +
+  //     绑定按钮事件 + 通过 CustomEvent 与 app.js 协作（避免重复绑定）。
+
+  function shouldShowOnboarding() {
+    try {
+      return localStorage.getItem(ONBOARDING_KEY) !== "true";
+    } catch (e) {
+      // localStorage 不可用时默认显示引导（不阻断使用，只是每次都看到首屏）。
+      return true;
+    }
+  }
+
+  function showOnboarding() {
+    if (elements.onboardingPanel) elements.onboardingPanel.hidden = false;
+    if (elements.importPanel) elements.importPanel.hidden = true;
+    if (elements.workbench) elements.workbench.hidden = true;
+  }
+
+  function completeOnboarding(dontShowAgain) {
+    try {
+      if (dontShowAgain) {
+        localStorage.setItem(ONBOARDING_KEY, "true");
+      }
+    } catch (e) {
+      // localStorage 不可用时静默降级；本次会话仍能隐藏引导页。
+    }
+    if (elements.onboardingPanel) elements.onboardingPanel.hidden = true;
+    if (elements.importPanel) elements.importPanel.hidden = false;
+  }
+
+  // P5：示例项目加载。优先用 fixtures/basic-c-major-120-v1/librosa-analysis-v2.json
+  // （librosa v2 后端，覆盖完整和弦/段落/节拍候选）；找不到时降级到
+  // fixtures/integration/integration-fixture.json（最小集成夹具，含 4 音符 + 2 歌词区域）。
+  // 浏览器模式用 fetch 相对路径；Electron 模式下 file:// 同源 fetch 也可访问本地夹具。
+  // WAV 关联是可选的：fetch 失败不影响示例分析 JSON 加载，只是没有音频播放。
+  async function loadExampleProject() {
+    setStatus("正在加载示例项目…", "");
+    const analysisCandidates = [
+      "../../fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
+      "../fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
+      "../../fixtures/integration/integration-fixture.json",
+      "../fixtures/integration/integration-fixture.json",
+    ];
+    let analysisText = null;
+    let loadedFromIntegration = false;
+    for (const candidate of analysisCandidates) {
+      try {
+        const resp = await fetch(candidate);
+        if (resp.ok) {
+          analysisText = await resp.text();
+          loadedFromIntegration = candidate.includes("integration-fixture");
+          break;
+        }
+      } catch (e) {
+        // fetch 失败（CORS / file:// 受限 / 路径不对），尝试下一条候选路径。
+      }
+    }
+    if (!analysisText) {
+      setStatus("无法加载示例项目：找不到分析 JSON。请在导入面板手动选择本地文件。", "error");
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(analysisText);
+    } catch (error) {
+      setStatus(`示例项目 JSON 解析失败：${error.message}`, "error");
+      return;
+    }
+    // integration-fixture.json 是完整项目 JSON（含顶层 analysis 字段）；
+    // librosa-analysis-v2.json 是纯分析 JSON（顶层就是分析对象）。
+    const analysis = loadedFromIntegration && parsed.analysis ? parsed.analysis : parsed;
+    try {
+      const candidate = validateAnalysis(analysis);
+      applyAnalysis(candidate);
+      // 尝试关联示例 WAV（可选；失败不影响示例分析加载）。
+      await tryAssociateExampleAudio();
+      const message = loadedFromIntegration
+        ? "已加载示例项目（最小集成夹具）。"
+        : "已加载示例项目（librosa 分析 v2）。";
+      setStatus(`${message}可在波形上拖选段落并填词。`, "success");
+      completeOnboarding(false);
+      // 通知 onboarding.js 隐藏引导卡片（与 completeOnboarding 形成双重保险）。
+      document.dispatchEvent(new CustomEvent("miku:onboarding-complete"));
+    } catch (error) {
+      setStatus(`示例项目加载失败：${error.message}`, "error");
+    }
+  }
+
+  // 尝试关联示例 WAV。fixtures/.generated/basic-c-major-120-v1.wav 是 50 秒 C 大调 120 BPM
+  // 无人声伴奏，与分析 JSON 时长一致。fetch 失败时静默跳过（用户可手动选择 WAV）。
+  async function tryAssociateExampleAudio() {
+    const wavCandidates = [
+      "../../fixtures/.generated/basic-c-major-120-v1.wav",
+      "../fixtures/.generated/basic-c-major-120-v1.wav",
+    ];
+    for (const candidate of wavCandidates) {
+      try {
+        const resp = await fetch(candidate);
+        if (!resp.ok) continue;
+        const blob = await resp.blob();
+        if (!blob || blob.size === 0) continue;
+        const file = new File([blob], "basic-c-major-120-v1.wav", { type: "audio/wav" });
+        await handleAudioFile(file);
+        return;
+      } catch (e) {
+        // 忽略；继续尝试下一条候选路径。
+      }
+    }
   }
 
   // ---- 渲染辅助 ----------------------------------------------------------------
@@ -3441,6 +3573,35 @@
 
   // ---- 事件绑定 ---------------------------------------------------------------
 
+  // P5：新手引导页事件绑定。onboarding.js 也会绑定这些按钮做 UI 层切换；
+  // app.js 这里负责"加载示例项目"实际加载逻辑（需要访问 state/applyAnalysis）。
+  if (elements.loadExampleButton) {
+    elements.loadExampleButton.addEventListener("click", async () => {
+      if (elements.loadExampleButton) elements.loadExampleButton.disabled = true;
+      try {
+        await loadExampleProject();
+      } catch (error) {
+        setStatus(`示例项目加载失败：${error.message}`, "error");
+      } finally {
+        if (elements.loadExampleButton) elements.loadExampleButton.disabled = false;
+      }
+    });
+  }
+  // onboarding.js 触发的"加载示例"事件（备用通道，确保即使按钮被多次绑定也只触发一次加载）。
+  document.addEventListener("miku:load-example-project", async () => {
+    try {
+      await loadExampleProject();
+    } catch (error) {
+      setStatus(`示例项目加载失败：${error.message}`, "error");
+    }
+  });
+  if (elements.skipOnboardingButton) {
+    elements.skipOnboardingButton.addEventListener("click", () => {
+      const dontShowAgain = !!(elements.dontShowAgain && elements.dontShowAgain.checked);
+      completeOnboarding(dontShowAgain);
+    });
+  }
+
   elements.analysisFile.addEventListener("change", async event => {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
@@ -3459,6 +3620,74 @@
     if (file) await handleAudioFile(file);
     event.target.value = "";
   });
+
+  // P1.3 步骤 4：librosa 分析按钮。仅在 Electron 桌面壳中显示
+  // （capabilities.analyzeAudio === true）。浏览器原型保持 hidden。
+  if (elements.librosaAnalysisRow && bridge && bridge.capabilities && bridge.capabilities.analyzeAudio) {
+    elements.librosaAnalysisRow.hidden = false;
+  }
+  if (elements.librosaAnalyzeButton) {
+    elements.librosaAnalyzeButton.addEventListener("click", async () => {
+      try {
+        await runLibrosaAnalysis();
+      } catch (error) {
+        setStatus(`librosa 分析失败：${error.message}`, "error");
+      } finally {
+        if (elements.librosaAnalyzeButton) elements.librosaAnalyzeButton.disabled = false;
+      }
+    });
+  }
+
+  async function runLibrosaAnalysis() {
+    if (!bridge || !bridge.capabilities || !bridge.capabilities.analyzeAudio) {
+      throw new Error("当前运行时不支持 librosa 分析（需要在 Electron 桌面壳中运行）。");
+    }
+    // 1. 选择输入音频文件（.wav/.mp3/.flac/.ogg）。
+    const inputPaths = await bridge.openFileDialog({
+      title: "选择要分析的音频文件",
+      filters: [
+        { name: "音频文件", extensions: ["wav", "mp3", "flac", "ogg"] },
+      ],
+    });
+    if (!inputPaths || inputPaths.length === 0) return;
+    const inputPath = inputPaths[0];
+
+    // 2. 推导输出 JSON 路径：与输入同目录，扩展名替换为 .librosa-analysis.json。
+    //    主进程会校验输出扩展名必须是 .json。
+    const lastDot = inputPath.lastIndexOf(".");
+    const lastSep = Math.max(inputPath.lastIndexOf("/"), inputPath.lastIndexOf("\\"));
+    const stem = lastDot > lastSep ? inputPath.slice(0, lastDot) : inputPath;
+    const outputPath = `${stem}.librosa-analysis.json`;
+
+    // 3. 调用主进程 spawn 分析服务，写入 outputPath。
+    elements.librosaAnalyzeButton.disabled = true;
+    setStatus(`正在用 librosa 分析 ${inputPath}，可能需要数十秒……`, "");
+    const result = await bridge.analyzeAudio(inputPath, outputPath);
+
+    // 4. 读取 outputPath 的 JSON 并加载到时间轴。
+    const jsonText = await bridge.readFileAsText(result.output_path || outputPath);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (error) {
+      throw new Error(`分析输出的 JSON 无法解析：${error.message}`);
+    }
+    const candidate = validateAnalysis(parsed);
+    applyAnalysis(candidate);
+
+    // 5. 如果用户还没关联 WAV，且输入正好是 WAV，自动关联方便播放。
+    if (!state.audioUrl && inputPath.toLowerCase().endsWith(".wav")) {
+      try {
+        const arrayBuffer = await bridge.readFileAsArrayBuffer(inputPath);
+        const file = new File([arrayBuffer], inputPath.split(/[\\/]/).pop() || "audio.wav", { type: "audio/wav" });
+        await handleAudioFile(file);
+      } catch (error) {
+        // 自动关联失败不阻塞分析流程，只提示用户手动关联。
+        setStatus(`分析完成，但自动关联 WAV 失败：${error.message}`, "error");
+      }
+    }
+    setStatus(`librosa 分析完成，已加载 ${result.output_path || outputPath}。`, "success");
+  }
 
   elements.importProjectButton.addEventListener("click", () => elements.projectFile.click());
   elements.projectFile.addEventListener("change", async event => {
@@ -4488,5 +4717,21 @@
       setLocked("syllable", id, elements.lockSyllableCheckbox.checked);
       setStatus(elements.lockSyllableCheckbox.checked ? `已锁定音节 ${id}。` : `已解锁音节 ${id}。`, "success");
     });
+  }
+
+  // P5：首屏可见性初始化。onboarding.js 在 DOMContentLoaded 时已经按 localStorage
+  // 决定过一次首屏可见性；这里在事件绑定完成后做最终校正：
+  //   - 若 shouldShowOnboarding() 返回 false（用户已标记完成），确保引导页隐藏、导入面板显示。
+  //   - 若返回 true（首次访问或被清除），onboarding.js 已显示引导页；这里不重复显示，
+  //     只确保 workbench 隐藏（避免空白区域露出）。
+  // 双重保险的原因：onboarding.js 与 app.js 都通过 defer 加载，执行顺序固定，
+  // 但 app.js 的初始化涉及更多状态（state / elements），放在这里能保证 elements 已就绪。
+  if (shouldShowOnboarding()) {
+    if (elements.onboardingPanel) elements.onboardingPanel.hidden = false;
+    if (elements.importPanel) elements.importPanel.hidden = true;
+    if (elements.workbench) elements.workbench.hidden = true;
+  } else {
+    if (elements.onboardingPanel) elements.onboardingPanel.hidden = true;
+    if (elements.importPanel) elements.importPanel.hidden = false;
   }
 })();

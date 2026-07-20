@@ -2,9 +2,9 @@
   "schema_version": 1,
   "project_name": "Miku 歌姬解放计划",
   "working_title": true,
-  "phase": "v0.5.2-librosa-backend-spike-p1.3-step1-complete",
+  "phase": "v0.5.3-p5-onboarding-example-project",
   "status": "in-progress",
-  "last_updated": "2026-07-21T08:30:00+08:00",
+  "last_updated": "2026-07-21T10:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -92,7 +92,7 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p2-r1-syllable-and-vocal-preview",
+      "status": "runnable-interaction-prototype-p5-onboarding-example-project",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4-1-8-and-triplet",
@@ -118,7 +118,10 @@
         "pinyin-and-kana-romaji-tables-with-reading-override",
         "vocal-preview-with-oscillator-node-and-gain-envelope",
         "field-level-lock-on-syllable-reading-with-undo-and-persistence",
-        "project-schema-0.3.0-with-0.2.0-and-0.1.0-automatic-migration"
+        "project-schema-0.3.0-with-0.2.0-and-0.1.0-automatic-migration",
+        "p5-onboarding-panel-with-localstorage-first-visit-detection-and-skip-toggle",
+        "p5-load-example-project-button-loads-librosa-analysis-v2-with-integration-fixture-fallback",
+        "p5-onboarding-js-iife-module-coordinates-with-app-js-via-customevent"
       ],
       "verified_environment": "windows-edge"
     },
@@ -218,6 +221,7 @@
     "prototype/web-workbench/styles.css",
     "prototype/web-workbench/app.js",
     "prototype/web-workbench/desktop-bridge.js",
+    "prototype/web-workbench/onboarding.js",
     "prototype/web-workbench/README.md",
     "tests/test_web_workbench_static.py",
     "docs/DESKTOP_STACK_SPIKE.md",
@@ -253,6 +257,8 @@
     "fixtures/basic-c-major-120-v1/librosa-analysis-v2.json"
   ],
   "next_actions": [
+    "p5-real-browser-regression-on-onboarding-first-visit-display-skip-load-example-and-dont-show-again-toggle",
+    "p5-verify-example-project-loads-librosa-analysis-v2-and-associates-wav-when-running-from-prototype-web-workbench-index-html",
     "rebuild-miku-workbench-0.5.0-win-x64-nsis-user-cancelled-dist-command-twice-in-sandbox-code-layer-complete-but-installer-not-yet-regenerated",
     "openutau-content-layer-verification-open-integration-fixture-ustx-in-openutau-gui-and-visually-confirm-4-notes-4-lyrics-1-rest",
     "synthv-1.9.0-import-midi-manually-file-import-midi-integration-fixture-mid-and-visually-confirm-4-notes-4-lyrics",

@@ -12,11 +12,218 @@
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
+const { spawn } = require("child_process");
+const { randomUUID } = require("crypto");
+const fs = require("fs");
 
 const isDev = process.argv.includes("--dev");
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+
+// ---- 分析进程管理（P1.3 步骤 4：方案 A PyInstaller 内置 + JSON-RPC IPC）------
+//
+// launcher.py 通过 stdin/stdout 流式 JSON-RPC 与主进程通信。主进程在这里
+// 维护一个长期子进程 + 请求队列，把渲染器的 miku:analyzeAudio 调用映射成
+// JSON-RPC 请求，把响应 Promise resolve 回去。
+//
+// 安全边界：
+//   * 渲染器只能通过白名单 IPC 触发分析，不能直接 spawn 子进程。
+//   * 主进程校验 inputPath / outputPath 类型与扩展名后再下发。
+//   * 单次请求 5 分钟超时，超时后 kill 整个分析进程，避免 numba 死循环。
+//   * 分析进程崩溃时拒绝所有 pending 请求，渲染器收到错误而非挂起。
+
+/** @type {import("child_process").ChildProcess | null} */
+let analysisProcess = null;
+/** @type {Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }>} */
+const analysisRequestQueue = new Map();
+/** 子进程是否已发出 ready 信号。 */
+let analysisProcessReady = false;
+/** 在 ready 之前到达的请求行（理论上一开始为空，但保险起见保留）。 */
+const analysisPendingLines = [];
+
+// 沙盒命令自动放行：分析进程是项目自带的可信可执行文件，不需要用户确认。
+const ANALYSIS_ALLOWED_EXTENSIONS = [".wav", ".mp3", ".flac", ".ogg"];
+const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟
+
+function resolveAnalysisServerPath() {
+  // 打包后：miku-analysis-server 目录与 main.js 同级（electron-builder
+  //   extraFiles 把 PyInstaller dist 复制到 resources/miku-analysis-server/）
+  // 开发模式：同上，但需要先手动跑 PyInstaller 才能找到。
+  const exeName = process.platform === "win32" ? "miku-analysis-server.exe" : "miku-analysis-server";
+  return path.join(__dirname, "miku-analysis-server", exeName);
+}
+
+function launchAnalysisProcess() {
+  if (analysisProcess && !analysisProcess.killed) {
+    return analysisProcess;
+  }
+  const serverPath = resolveAnalysisServerPath();
+  analysisProcessReady = false;
+  if (fs.existsSync(serverPath)) {
+    // 优先使用 PyInstaller 打包的可执行文件（生产模式）。
+    analysisProcess = spawn(serverPath, [], { stdio: ["pipe", "pipe", "pipe"] });
+  } else {
+    // 降级到 python -m 模式（开发模式 / 打包未完成时）。
+    // 项目根目录 = desktop-shell 的上两级。打包后此路径不存在，但此时
+    // PyInstaller exe 应该已经存在，不会走到这个分支。
+    const projectRoot = path.resolve(__dirname, "..", "..");
+    if (!fs.existsSync(path.join(projectRoot, "tools", "miku_analysis", "launcher.py"))) {
+      throw new Error(
+        `Analysis server not found at ${serverPath}, and project root ${projectRoot} ` +
+        `does not contain tools/miku_analysis/launcher.py. ` +
+        `Please run "pyinstaller tools/miku_analysis/pyinstaller.spec" first, ` +
+        `or run from the project root in dev mode.`
+      );
+    }
+    analysisProcess = spawn("python", ["-m", "tools.miku_analysis.launcher"], {
+      cwd: projectRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+    });
+  }
+
+  analysisProcess.stdout.on("data", (data) => {
+    // 按行解析 JSON-RPC 响应。launcher.py 每个响应一行。
+    const lines = data.toString().split("\n");
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let response;
+      try {
+        response = JSON.parse(line);
+      } catch (error) {
+        console.error("[analysis-server] failed to parse stdout line:", line, error);
+        continue;
+      }
+      // ready 信号：id === "system" && result.status === "ready"
+      if (response.id === "system" && response.result && response.result.status === "ready") {
+        analysisProcessReady = true;
+        // 保险起见：flush 任何在 ready 之前缓存的请求行。
+        for (const pending of analysisPendingLines) {
+          analysisProcess.stdin.write(pending);
+        }
+        analysisPendingLines.length = 0;
+        continue;
+      }
+      const reqId = response.id;
+      if (!reqId) continue;
+      const pending = analysisRequestQueue.get(reqId);
+      if (!pending) continue;
+      clearTimeout(pending.timeout);
+      analysisRequestQueue.delete(reqId);
+      if (response.error) {
+        const err = new Error(response.error.message || "analysis failed");
+        err.code = response.error.code;
+        err.traceback = response.error.traceback;
+        pending.reject(err);
+      } else {
+        pending.resolve(response.result);
+      }
+    }
+  });
+
+  analysisProcess.stderr.on("data", (data) => {
+    // stderr 仅供调试，不影响 JSON-RPC 协议。
+    console.error("[analysis-server]", data.toString().trimEnd());
+  });
+
+  analysisProcess.on("exit", (code, signal) => {
+    console.log(`[analysis-server] exited code=${code} signal=${signal}`);
+    analysisProcess = null;
+    analysisProcessReady = false;
+    // 拒绝所有 pending 请求：进程崩溃不能让渲染器挂起。
+    for (const [, pending] of analysisRequestQueue) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(`Analysis server exited (code=${code}, signal=${signal})`));
+    }
+    analysisRequestQueue.clear();
+  });
+
+  analysisProcess.on("error", (error) => {
+    // spawn 本身失败（路径不存在 / 权限不足等）。
+    console.error("[analysis-server] spawn error:", error);
+    analysisProcess = null;
+    analysisProcessReady = false;
+    for (const [, pending] of analysisRequestQueue) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(`Failed to launch analysis server: ${error.message}`));
+    }
+    analysisRequestQueue.clear();
+  });
+
+  return analysisProcess;
+}
+
+function analyzeAudio(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    if (typeof inputPath !== "string" || typeof outputPath !== "string") {
+      reject(new Error("inputPath and outputPath must be strings"));
+      return;
+    }
+    if (inputPath.length === 0 || outputPath.length === 0) {
+      reject(new Error("inputPath and outputPath must not be empty"));
+      return;
+    }
+    // 校验输入扩展名。output 必须是 .json（与 schema 一致）。
+    const allowedExt = ANALYSIS_ALLOWED_EXTENSIONS;
+    const inputExt = path.extname(inputPath).toLowerCase();
+    if (!allowedExt.includes(inputExt)) {
+      reject(new Error(`Unsupported input format: ${inputExt}. Allowed: ${allowedExt.join(", ")}`));
+      return;
+    }
+    const outputExt = path.extname(outputPath).toLowerCase();
+    if (outputExt !== ".json") {
+      reject(new Error(`Output path must end with .json, got: ${outputExt}`));
+      return;
+    }
+
+    let processHandle;
+    try {
+      processHandle = launchAnalysisProcess();
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const reqId = randomUUID();
+    const request = {
+      id: reqId,
+      method: "analyze",
+      params: { input_path: inputPath, output_path: outputPath },
+    };
+    const line = JSON.stringify(request) + "\n";
+
+    const timeout = setTimeout(() => {
+      analysisRequestQueue.delete(reqId);
+      // 超时后 kill 整个分析进程，避免 numba 死循环继续占用 CPU。
+      if (analysisProcess && !analysisProcess.killed) {
+        analysisProcess.kill("SIGTERM");
+      }
+      reject(new Error("Analysis timed out after 5 minutes"));
+    }, ANALYSIS_TIMEOUT_MS);
+
+    analysisRequestQueue.set(reqId, { resolve, reject, timeout });
+
+    // 如果还没 ready，缓存请求行，等 ready 信号到达后再 flush。
+    if (analysisProcessReady) {
+      processHandle.stdin.write(line);
+    } else {
+      analysisPendingLines.push(line);
+    }
+  });
+}
+
+// IPC: 用打包后的 librosa 分析进程分析本地音频，把 schema-0.1.0 JSON 写到
+// outputPath。渲染器拿到 outputPath 后用 readFileAsText 读取并加载到时间轴。
+ipcMain.handle("miku:analyzeAudio", async (event, inputPath, outputPath) => {
+  return await analyzeAudio(inputPath, outputPath);
+});
+
+// IPC: 流式 JSON-RPC 别名。当前实现与 miku:analyzeAudio 等价（launcher 还
+// 没有进度事件），保留通道供后续接入实时进度 / 分阶段结果。
+ipcMain.handle("miku:analyzeAudioStream", async (event, inputPath, outputPath) => {
+  return await analyzeAudio(inputPath, outputPath);
+});
 
 function resolveWorkbenchPath() {
   // 开发模式：__dirname 是 prototype/desktop-shell/，web-workbench 是本地 junction。

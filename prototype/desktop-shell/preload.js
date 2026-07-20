@@ -21,7 +21,10 @@ const bridge = Object.freeze({
   runtime: "electron",
   capabilities: Object.freeze({
     nativeFileDialog: true,
-    launchAnalysisProcess: false, // P1.3 阶段接入打包后的 Python 分析进程
+    // P1.3 步骤 4：PyInstaller 打包的 librosa 分析进程已接入。
+    // 渲染器通过 analyzeAudio 方法触发主进程 spawn 分析服务。
+    launchAnalysisProcess: true,
+    analyzeAudio: true,
     persistentFileAccess: true,
   }),
 
@@ -88,6 +91,25 @@ const bridge = Object.freeze({
    */
   async revealPathInExplorer(filePath) {
     return await ipcRenderer.invoke("miku:revealPathInExplorer", filePath);
+  },
+
+  /**
+   * 用打包后的 librosa 分析进程分析本地音频，把 schema-0.1.0 JSON 写到
+   * outputPath，并返回结果摘要。主进程会校验 inputPath 扩展名
+   * （.wav/.mp3/.flac/.ogg）和 outputPath 扩展名（.json）。
+   *
+   * 触发流程：
+   *   1. 主进程 spawn miku-analysis-server.exe（如尚未运行）
+   *   2. 通过 stdin 发送 JSON-RPC analyze 请求
+   *   3. launcher.py 调用 librosa_backend.analyze_audio 并原子写入 outputPath
+   *   4. 主进程收到 stdout 上的 JSON-RPC 响应后 resolve
+   *
+   * @param {string} inputPath 输入音频绝对路径
+   * @param {string} outputPath 输出 JSON 绝对路径
+   * @returns {Promise<{ status: string, output_path: string, schema_version: string, analyzer: object }>}
+   */
+  async analyzeAudio(inputPath, outputPath) {
+    return await ipcRenderer.invoke("miku:analyzeAudio", inputPath, outputPath);
   },
 
   /**

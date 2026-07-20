@@ -4,3 +4,9 @@ fixtures/.generated/
 # Python cache files from fixture tools.
 __pycache__/
 *.pyc
+
+# PyInstaller build logs (environment-specific, not reproducible).
+logs/pyinstaller-build.log
+dist/
+build/
+*.spec.bak

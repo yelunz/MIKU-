@@ -23,6 +23,66 @@
   </header>
 
   <main>
+    <section id="onboarding-panel" class="onboarding-panel" hidden>
+      <div class="onboarding-card">
+        <div class="onboarding-header">
+          <p class="eyebrow">首次使用 · 快速上手</p>
+          <h2>欢迎使用 Miku 歌姬解放计划</h2>
+          <p class="subtitle">从伴奏到歌声的本地优先工作台。无需联网，所有数据保存在本机。</p>
+        </div>
+
+        <ol class="onboarding-steps">
+          <li>
+            <span class="step-number">1</span>
+            <div class="step-content">
+              <h3>导入伴奏分析</h3>
+              <p>使用 <code>tools/analyze_audio.py</code> 或内置 librosa 分析器生成 JSON，然后在"导入本地文件"区域选择。</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <div class="step-content">
+              <h3>关联无人声伴奏 WAV</h3>
+              <p>选择对应的 WAV 文件。音频只在本地使用，不会上传。</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <div class="step-content">
+              <h3>选择歌词区域并填词</h3>
+              <p>在波形上拖选一段，输入中文或日文歌词。支持拼音/罗马音自动纠正。</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">4</span>
+            <div class="step-content">
+              <h3>导出到歌声引擎</h3>
+              <p>支持 OpenUtau USTX 0.7、Synthesizer V 1.9.0、VOCALOID6 6.13.0、MIDI 基线四种导出格式。</p>
+            </div>
+          </li>
+        </ol>
+
+        <div class="onboarding-actions">
+          <button id="load-example-button" class="primary" type="button">加载示例项目（推荐）</button>
+          <button id="skip-onboarding-button" type="button">跳过，直接进入工作台</button>
+        </div>
+
+        <label class="inline-check onboarding-dont-show">
+          <input id="dont-show-again" type="checkbox"> 不再显示引导页
+        </label>
+
+        <details class="onboarding-help">
+          <summary>找不到分析 JSON？</summary>
+          <p>如果你还没有分析 JSON，可以：</p>
+          <ul>
+            <li>使用内置 librosa 分析器（仅在桌面版可用）</li>
+            <li>运行 <code>python tools/analyze_audio.py &lt;input.wav&gt; -o analysis.json</code>（标准库基线）</li>
+            <li>运行 <code>python -m tools.miku_analysis.librosa_backend &lt;input.wav&gt; -o analysis.json</code>（librosa 后端，精度更高）</li>
+          </ul>
+        </details>
+      </div>
+    </section>
+
     <section class="import-panel" aria-labelledby="import-title">
       <div>
         <h2 id="import-title">1. 导入本地文件</h2>
@@ -35,6 +95,10 @@
       <label class="file-picker">
         <span>无人声伴奏 WAV</span>
         <input id="audio-file" type="file" accept="audio/wav,.wav">
+      </label>
+      <label class="file-picker" id="librosa-analysis-row" hidden>
+        <span>或用 librosa 分析音频</span>
+        <button id="librosa-analyze-button" type="button">选择音频并分析</button>
       </label>
       <div id="status" class="status" role="status" aria-live="polite">等待导入分析 JSON。</div>
     </section>
@@ -271,6 +335,7 @@
 
   <audio id="audio-player" preload="metadata"></audio>
   <script src="desktop-bridge.js" defer></script>
+  <script src="onboarding.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

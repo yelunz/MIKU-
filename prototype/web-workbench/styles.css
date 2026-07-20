@@ -234,3 +234,29 @@ pre { max-height: 16rem; overflow: auto; white-space: pre-wrap; word-break: brea
   .timeline-content { --label-width: 4.5rem; }
   .track-label { font-size: 0.63rem; }
 }
+
+/* P5：新手引导页（首屏卡片，仅首次访问显示；用户可跳过直接进工作台） */
+.onboarding-panel { display: flex; justify-content: center; padding: 2rem clamp(1rem, 4vw, 3rem); }
+.onboarding-card { max-width: 45rem; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 2rem; box-shadow: var(--shadow); }
+.onboarding-header { text-align: center; margin-bottom: 2rem; }
+.onboarding-header h2 { margin: 0.5rem 0; font-size: 1.5rem; }
+.onboarding-header .subtitle { color: var(--muted); font-size: 0.86rem; line-height: 1.55; }
+.onboarding-steps { list-style: none; padding: 0; margin: 0 0 2rem 0; }
+.onboarding-steps li { display: flex; gap: 1rem; margin-bottom: 1.25rem; align-items: flex-start; }
+.step-number { flex-shrink: 0; width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.86rem; }
+.step-content h3 { margin: 0 0 0.25rem 0; font-size: 1rem; }
+.step-content p { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.55; }
+.step-content code { font-size: 0.78rem; }
+.onboarding-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.onboarding-actions button { padding: 0.6rem 1.25rem; font-size: 0.86rem; }
+.onboarding-dont-show { justify-content: center; margin: 0 0 1rem; padding: 0.5rem; border: 1px dashed color-mix(in srgb, var(--muted) 35%, var(--border)); border-radius: 0.5rem; background: var(--surface-soft); }
+.onboarding-help { margin-top: 1rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--surface-soft); color: var(--muted); font-size: 0.8rem; line-height: 1.55; }
+.onboarding-help summary { cursor: pointer; font-weight: 650; color: var(--text); }
+.onboarding-help p { margin: 0.5rem 0 0.35rem; }
+.onboarding-help ul { margin: 0.35rem 0; padding-left: 1.25rem; }
+.onboarding-help li { margin-bottom: 0.25rem; }
+@media (max-width: 650px) {
+  .onboarding-card { padding: 1.25rem; }
+  .onboarding-steps li { gap: 0.75rem; }
+  .step-number { width: 1.75rem; height: 1.75rem; font-size: 0.78rem; }
+}

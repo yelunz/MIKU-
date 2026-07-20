@@ -34,12 +34,15 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         cls.html = (WORKBENCH / "index.html").read_text(encoding="utf-8")
         cls.javascript = (WORKBENCH / "app.js").read_text(encoding="utf-8")
         cls.styles = (WORKBENCH / "styles.css").read_text(encoding="utf-8")
+        cls.onboarding_js = (WORKBENCH / "onboarding.js").read_text(encoding="utf-8")
         cls.parser = WorkbenchHtmlParser()
         cls.parser.feed(cls.html)
 
     def test_entrypoint_has_unique_ids_and_local_assets(self) -> None:
         self.assertEqual(len(self.parser.ids), len(set(self.parser.ids)))
-        self.assertEqual(self.parser.scripts, ["desktop-bridge.js", "app.js"])
+        # P5：新增 onboarding.js 引导模块，放在 desktop-bridge.js 与 app.js 之间。
+        # 顺序固定：bridge 先初始化桌面能力 → onboarding 决定首屏可见性 → app.js 主程序。
+        self.assertEqual(self.parser.scripts, ["desktop-bridge.js", "onboarding.js", "app.js"])
         self.assertEqual(self.parser.stylesheets, ["styles.css"])
         self.assertNotRegex(self.html, r"https?://")
         self.assertNotRegex(self.styles, r"https?://")
@@ -842,11 +845,101 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         # 读音修改、重新切分、锁定 toggle 三种操作必须记录 undo 点
         self.assertIn('editGraph.begin(`修改读音 ${syllableId}`)', self.javascript)
         self.assertIn("editGraph.begin(`重新切分 ${region.id}`)", self.javascript)
-        self.assertIn("editGraph.begin(`锁定读音 ${id}`)", self.javascript)
+        self.assertIn('editGraph.begin(`锁定读音 ${id}`)', self.javascript)
         # 删除歌词时一并删除其 syllable（撤销时一并恢复）
         self.assertIn("state.syllables.filter(s => s.lyricId !== state.selectedLyricId)", self.javascript)
         # 删除歌词时同步清除 syllable 锁定
         # （实现中通过 setLocked("syllable", id, false) 在 resplitSyllablesForRegion 内完成）
+
+    # ---- P5：新手引导页 + 示例项目（8 项）------------------------------------
+
+    def test_index_html_has_onboarding_panel(self) -> None:
+        # 引导页 section 必须存在且默认 hidden（由 onboarding.js 决定首屏可见性）
+        self.assertIn('id="onboarding-panel"', self.html)
+        self.assertIn('class="onboarding-panel"', self.html)
+        # 引导卡片容器
+        self.assertIn('class="onboarding-card"', self.html)
+
+    def test_index_html_has_load_example_button(self) -> None:
+        # "加载示例项目"按钮：触发 app.js loadExampleProject()
+        self.assertIn('id="load-example-button"', self.html)
+        self.assertIn("加载示例项目", self.html)
+
+    def test_index_html_has_skip_onboarding_button(self) -> None:
+        # "跳过，直接进入工作台"按钮：触发 completeOnboarding(dontShowAgain.checked)
+        self.assertIn('id="skip-onboarding-button"', self.html)
+        self.assertIn("跳过", self.html)
+
+    def test_index_html_has_dont_show_again_checkbox(self) -> None:
+        # "不再显示引导页"勾选框：决定是否写入 localStorage
+        self.assertIn('id="dont-show-again"', self.html)
+        self.assertIn("不再显示", self.html)
+
+    def test_index_html_has_onboarding_steps(self) -> None:
+        # 引导页必须有 4 个步骤（导入分析 → 关联 WAV → 填词 → 导出）
+        step_number_count = self.html.count('class="step-number"')
+        step_content_count = self.html.count('class="step-content"')
+        self.assertEqual(step_number_count, 4, f"expected 4 step-number, got {step_number_count}")
+        self.assertEqual(step_content_count, 4, f"expected 4 step-content, got {step_content_count}")
+        # 4 个步骤标题
+        for title in ("导入伴奏分析", "关联无人声伴奏 WAV", "选择歌词区域并填词", "导出到歌声引擎"):
+            self.assertIn(title, self.html)
+
+    def test_app_js_has_onboarding_logic(self) -> None:
+        # app.js 必须包含三个核心引导函数
+        self.assertIn("function shouldShowOnboarding", self.javascript)
+        self.assertIn("function completeOnboarding", self.javascript)
+        self.assertIn("function loadExampleProject", self.javascript)
+        # ONBOARDING_KEY 常量
+        self.assertIn('const ONBOARDING_KEY = "miku-onboarding-completed"', self.javascript)
+        # 元素引用
+        self.assertIn("onboardingPanel: byId", self.javascript)
+        self.assertIn("importPanel: document.querySelector", self.javascript)
+        self.assertIn("loadExampleButton: byId", self.javascript)
+        self.assertIn("skipOnboardingButton: byId", self.javascript)
+        self.assertIn("dontShowAgain: byId", self.javascript)
+        # 事件绑定
+        self.assertIn("elements.loadExampleButton.addEventListener", self.javascript)
+        self.assertIn("elements.skipOnboardingButton.addEventListener", self.javascript)
+        # 示例项目加载必须尝试 librosa-analysis-v2.json + integration-fixture.json 降级路径
+        self.assertIn("librosa-analysis-v2.json", self.javascript)
+        self.assertIn("integration-fixture.json", self.javascript)
+        # 示例 WAV 关联路径
+        self.assertIn("basic-c-major-120-v1.wav", self.javascript)
+        # 加载完成后派发完成事件（让 onboarding.js 隐藏卡片）
+        self.assertIn("miku:onboarding-complete", self.javascript)
+
+    def test_app_js_uses_local_storage(self) -> None:
+        # shouldShowOnboarding 用 localStorage.getItem 读取引导完成标志
+        self.assertIn("localStorage.getItem(ONBOARDING_KEY)", self.javascript)
+        # completeOnboarding 用 localStorage.setItem 写入引导完成标志
+        self.assertIn('localStorage.setItem(ONBOARDING_KEY, "true")', self.javascript)
+        # localStorage 不可用时静默降级（try/catch 包裹）
+        self.assertIn("return true;", self.javascript)
+        # 首屏可见性初始化（事件绑定完成后校正）
+        self.assertIn("if (shouldShowOnboarding())", self.javascript)
+
+    def test_onboarding_js_exists_and_is_iife(self) -> None:
+        # onboarding.js 必须是 IIFE 结构（不污染全局）
+        self.assertIn('"use strict";', self.onboarding_js)
+        self.assertIn("(() => {", self.onboarding_js)
+        self.assertTrue(self.onboarding_js.rstrip().endswith("})();"),
+                        "onboarding.js 必须以 IIFE 闭合 })(); 结尾")
+        # 内部使用相同的 ONBOARDING_KEY（与 app.js 保持一致）
+        self.assertIn('const ONBOARDING_KEY = "miku-onboarding-completed"', self.onboarding_js)
+        # 读写 localStorage
+        self.assertIn("localStorage.getItem(ONBOARDING_KEY)", self.onboarding_js)
+        self.assertIn("localStorage.setItem(ONBOARDING_KEY", self.onboarding_js)
+        # 通过 CustomEvent 与 app.js 协作
+        self.assertIn("miku:load-example-project", self.onboarding_js)
+        self.assertIn("miku:onboarding-complete", self.onboarding_js)
+        # 等待 DOM ready
+        self.assertIn("DOMContentLoaded", self.onboarding_js)
+        # 不暴露到 window（无 globalThis 赋值、无 window. 赋值）
+        self.assertNotIn("globalThis.MikuOnboarding", self.onboarding_js)
+        self.assertNotIn("window.MikuOnboarding", self.onboarding_js)
+        # 不使用 innerHTML（与既有规则一致）
+        self.assertNotIn("innerHTML", self.onboarding_js)
 
 
 

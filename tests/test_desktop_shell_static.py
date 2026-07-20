@@ -12,6 +12,7 @@ import unittest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DESKTOP_SHELL = REPOSITORY_ROOT / "prototype" / "desktop-shell"
 WEB_WORKBENCH = REPOSITORY_ROOT / "prototype" / "web-workbench"
+MIKU_ANALYSIS = REPOSITORY_ROOT / "tools" / "miku_analysis"
 
 
 class DesktopShellStaticTests(unittest.TestCase):
@@ -24,6 +25,9 @@ class DesktopShellStaticTests(unittest.TestCase):
         cls.readme = (DESKTOP_SHELL / "README.md").read_text(encoding="utf-8")
         cls.gitignore = (DESKTOP_SHELL / ".gitignore").read_text(encoding="utf-8")
         cls.desktop_bridge_js = (WEB_WORKBENCH / "desktop-bridge.js").read_text(encoding="utf-8")
+        # P1.3 步骤 4：分析服务进程入口与 PyInstaller spec。
+        cls.launcher_py = (MIKU_ANALYSIS / "launcher.py").read_text(encoding="utf-8")
+        cls.pyinstaller_spec = (MIKU_ANALYSIS / "pyinstaller.spec").read_text(encoding="utf-8")
 
     def test_package_json_declares_electron_and_electron_builder(self) -> None:
         self.assertEqual(self.package_json["name"], "miku-workbench")
@@ -121,9 +125,114 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertIn("writeTextFile", self.preload_js)
 
     def test_preload_js_capabilities_match_design(self) -> None:
-        # DESKTOP_STACK_SPIKE.md 规定：原生文件对话框=是；Python 分析进程=否（P1.3 接入）
+        # P1.3 步骤 4 接入后：原生文件对话框=是；Python 分析进程=是；
+        # analyzeAudio=是（PyInstaller 打包的 librosa 后端已通过 IPC 接入）。
         self.assertIn("nativeFileDialog: true", self.preload_js)
-        self.assertIn("launchAnalysisProcess: false", self.preload_js)
+        self.assertIn("launchAnalysisProcess: true", self.preload_js)
+        self.assertIn("analyzeAudio: true", self.preload_js)
+
+    def test_preload_js_capabilities_launch_analysis_process_true(self) -> None:
+        # P1.3 步骤 4：launchAnalysisProcess 从 false 翻 true
+        self.assertIn("launchAnalysisProcess: true", self.preload_js)
+        self.assertNotIn("launchAnalysisProcess: false", self.preload_js)
+
+    def test_preload_js_capabilities_analyze_audio_true(self) -> None:
+        # capabilities.analyzeAudio 必须为 true，且 bridge 必须暴露 analyzeAudio 方法
+        self.assertIn("analyzeAudio: true", self.preload_js)
+        self.assertIn("async analyzeAudio(inputPath, outputPath)", self.preload_js)
+        self.assertIn('ipcRenderer.invoke("miku:analyzeAudio"', self.preload_js)
+
+    def test_main_js_registers_analyze_audio_ipc_handler(self) -> None:
+        # 主进程必须注册 miku:analyzeAudio 白名单 IPC handler
+        self.assertIn('ipcMain.handle("miku:analyzeAudio"', self.main_js)
+        # 流式别名 miku:analyzeAudioStream 也必须注册（约束第 2 条）
+        self.assertIn('ipcMain.handle("miku:analyzeAudioStream"', self.main_js)
+        # 必须用 child_process.spawn 启动分析进程（不能用 exec/eval）
+        self.assertIn("spawn", self.main_js)
+        # 必须用 crypto.randomUUID 生成请求 id（不能用 Math.random）
+        self.assertIn("randomUUID", self.main_js)
+
+    def test_main_js_validates_input_file_extension(self) -> None:
+        # 主进程必须校验 inputPath 扩展名（.wav/.mp3/.flac/.ogg）
+        # 约束第 3 条：路径校验扩展名 .wav/.mp3/.flac
+        self.assertIn('".wav"', self.main_js)
+        self.assertIn('".mp3"', self.main_js)
+        self.assertIn('".flac"', self.main_js)
+        # 必须有 allowedExt / ANALYSIS_ALLOWED_EXTENSIONS 常量
+        self.assertTrue(
+            "ANALYSIS_ALLOWED_EXTENSIONS" in self.main_js or "allowedExt" in self.main_js,
+            "main.js must define an allowed extensions list for analysis input",
+        )
+        # 必须用 path.extname 提取扩展名做校验
+        self.assertIn("path.extname(inputPath)", self.main_js)
+        # 必须校验 inputPath / outputPath 类型为 string
+        self.assertIn('typeof inputPath !== "string"', self.main_js)
+
+    def test_main_js_has_analysis_process_timeout(self) -> None:
+        # 约束第 5 条：分析进程单次运行超时 5 分钟自动 kill
+        # 5 * 60 * 1000 ms = 300000 ms
+        self.assertIn("ANALYSIS_TIMEOUT_MS", self.main_js)
+        # 5 分钟可以是 5 * 60 * 1000 或 "5 minutes" 文案
+        self.assertTrue(
+            "5 * 60 * 1000" in self.main_js or "300000" in self.main_js,
+            "main.js must configure a 5-minute analysis timeout",
+        )
+        self.assertIn('"Analysis timed out after 5 minutes"', self.main_js)
+        # 超时后必须 kill 进程
+        self.assertIn('.kill("SIGTERM")', self.main_js)
+
+    def test_main_js_isolates_analysis_process_crash(self) -> None:
+        # 约束第 4 条：分析进程崩溃不能影响 Electron 主进程
+        # 必须监听 exit 事件并拒绝所有 pending 请求
+        self.assertIn('"exit"', self.main_js)
+        self.assertIn("analysisRequestQueue", self.main_js)
+        # 必须监听 error 事件（spawn 失败）
+        self.assertIn('"error"', self.main_js)
+        # 必须在崩溃时 clear 请求队列
+        self.assertIn("analysisRequestQueue.clear()", self.main_js)
+
+    def test_launcher_py_handles_ping(self) -> None:
+        # launcher.py 必须实现 ping method（健康检查）
+        self.assertIn('"ping"', self.launcher_py)
+        self.assertIn('"pong"', self.launcher_py)
+
+    def test_launcher_py_handles_shutdown(self) -> None:
+        # launcher.py 必须实现 shutdown method（优雅退出）
+        self.assertIn('"shutdown"', self.launcher_py)
+        self.assertIn('"shutting_down"', self.launcher_py)
+
+    def test_launcher_py_outputs_ready_signal(self) -> None:
+        # launcher.py 启动时必须输出 ready 信号，让 Electron 主进程知道可接收请求
+        self.assertIn('"ready"', self.launcher_py)
+        self.assertIn('"system"', self.launcher_py)
+        # 必须有 LAUNCHER_VERSION 常量
+        self.assertIn("LAUNCHER_VERSION", self.launcher_py)
+
+    def test_launcher_py_implements_json_rpc_protocol(self) -> None:
+        # 必须实现 analyze method 调用 librosa_backend.analyze_audio
+        self.assertIn('"analyze"', self.launcher_py)
+        self.assertIn("analyze_audio", self.launcher_py)
+        # 必须处理 INVALID_JSON / INVALID_PARAMS / ANALYSIS_FAILED / UNKNOWN_METHOD 错误码
+        for code in ("INVALID_JSON", "INVALID_PARAMS", "ANALYSIS_FAILED", "UNKNOWN_METHOD"):
+            self.assertIn(code, self.launcher_py)
+        # 必须用 stdin 循环读取请求行
+        self.assertIn("sys.stdin", self.launcher_py)
+        # 必须用 stdout 写响应
+        self.assertIn("sys.stdout", self.launcher_py)
+
+    def test_pyinstaller_spec_entry_and_hidden_imports(self) -> None:
+        # spec 入口必须是 launcher.py
+        self.assertIn("tools/miku_analysis/launcher.py", self.pyinstaller_spec)
+        # exe 名必须是 miku-analysis-server
+        self.assertIn("miku-analysis-server", self.pyinstaller_spec)
+        # 必须把 librosa_backend 显式列为 hiddenimport（命名空间包兜底）
+        self.assertIn("tools.miku_analysis.librosa_backend", self.pyinstaller_spec)
+        # 必须收集 numba / librosa / scipy / sklearn 子模块（动态导入兜底）
+        self.assertIn("collect_submodules", self.pyinstaller_spec)
+        for pkg in ("librosa", "numba", "scipy", "sklearn"):
+            self.assertIn(f"'{pkg}'", self.pyinstaller_spec)
+        # 必须是 console 模式（stdin/stdout 通信需要 console）
+        self.assertIn("console=True", self.pyinstaller_spec)
 
     def test_preload_js_does_not_expose_arbitrary_ipc(self) -> None:
         # 渲染器只能调用白名单方法，不能直接 require 或访问 ipcRenderer
