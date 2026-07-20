@@ -35,14 +35,15 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         cls.javascript = (WORKBENCH / "app.js").read_text(encoding="utf-8")
         cls.styles = (WORKBENCH / "styles.css").read_text(encoding="utf-8")
         cls.onboarding_js = (WORKBENCH / "onboarding.js").read_text(encoding="utf-8")
+        cls.error_recovery_js = (WORKBENCH / "error-recovery.js").read_text(encoding="utf-8")
         cls.parser = WorkbenchHtmlParser()
         cls.parser.feed(cls.html)
 
     def test_entrypoint_has_unique_ids_and_local_assets(self) -> None:
         self.assertEqual(len(self.parser.ids), len(set(self.parser.ids)))
-        # P5：新增 onboarding.js 引导模块，放在 desktop-bridge.js 与 app.js 之间。
-        # 顺序固定：bridge 先初始化桌面能力 → onboarding 决定首屏可见性 → app.js 主程序。
-        self.assertEqual(self.parser.scripts, ["desktop-bridge.js", "onboarding.js", "app.js"])
+        # P5：新增 error-recovery.js（全局错误边界）+ onboarding.js（引导页）。
+        # 顺序固定：error-recovery 先注册全局错误处理器 → bridge 初始化桌面能力 → onboarding 决定首屏 → app.js 主程序。
+        self.assertEqual(self.parser.scripts, ["error-recovery.js", "desktop-bridge.js", "onboarding.js", "app.js"])
         self.assertEqual(self.parser.stylesheets, ["styles.css"])
         self.assertNotRegex(self.html, r"https?://")
         self.assertNotRegex(self.styles, r"https?://")
@@ -1333,6 +1334,81 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("name: track.name", self.javascript)
         # 项目导入加载 harmony_tracks（0.4.0 项目）
         self.assertIn("editing.harmony_tracks", self.javascript)
+
+    # ==== P5 错误恢复测试 ====
+
+    def test_p5_error_recovery_js_exists_and_is_iife(self) -> None:
+        """error-recovery.js 是独立 IIFE 模块，注册全局错误处理器。"""
+        self.assertIn('"use strict";', self.error_recovery_js)
+        self.assertIn("(() => {", self.error_recovery_js)
+        self.assertTrue(self.error_recovery_js.rstrip().endswith("})();"))
+        # 不暴露到全局
+        self.assertNotIn("globalThis.MikuErrorRecovery", self.error_recovery_js)
+        self.assertNotIn("window.MikuErrorRecovery", self.error_recovery_js)
+        # 不使用 innerHTML
+        self.assertNotIn("innerHTML", self.error_recovery_js)
+
+    def test_p5_error_recovery_registers_global_handlers(self) -> None:
+        """全局错误边界：注册 error 与 unhandledrejection 事件处理器。"""
+        self.assertIn('window.addEventListener("error"', self.error_recovery_js)
+        self.assertIn('window.addEventListener("unhandledrejection"', self.error_recovery_js)
+        # 错误通知 toast 函数
+        self.assertIn("function showErrorToast", self.error_recovery_js)
+        self.assertIn("error-toast-container", self.error_recovery_js)
+
+    def test_p5_error_recovery_autosave_to_localstorage(self) -> None:
+        """自动保存草稿到 localStorage，防抖 2 秒。"""
+        self.assertIn("miku-autosave-draft", self.error_recovery_js)
+        self.assertIn("miku-autosave-timestamp", self.error_recovery_js)
+        self.assertIn("AUTOSAVE_DEBOUNCE_MS", self.error_recovery_js)
+        self.assertIn("localStorage.setItem(AUTOSAVE_KEY", self.error_recovery_js)
+        self.assertIn("localStorage.getItem(AUTOSAVE_TIMESTAMP_KEY)", self.error_recovery_js)
+        # QuotaExceededError 降级处理
+        self.assertIn("QuotaExceededError", self.error_recovery_js)
+
+    def test_p5_error_recovery_crash_recovery(self) -> None:
+        """崩溃恢复：页面加载时检测未恢复的草稿，派发 miku:restore-draft 事件。"""
+        self.assertIn("function checkPendingDraft", self.error_recovery_js)
+        self.assertIn("miku:restore-draft", self.error_recovery_js)
+        self.assertIn("AUTOSAVE_MAX_AGE_MS", self.error_recovery_js)
+        # 24 小时过期
+        self.assertIn("24 * 60 * 60 * 1000", self.error_recovery_js)
+        # pagehide 强制保存
+        self.assertIn('window.addEventListener("pagehide"', self.error_recovery_js)
+        self.assertIn("miku:request-autosave", self.error_recovery_js)
+
+    def test_p5_app_js_dispatches_autosave(self) -> None:
+        """app.js 在 renderAll 后派发 miku:state-changed 事件。"""
+        self.assertIn("function dispatchAutosave", self.javascript)
+        self.assertIn("miku:state-changed", self.javascript)
+        self.assertIn("dispatchAutosave()", self.javascript)
+        # 导出项目后清除草稿
+        self.assertIn("miku:clear-draft", self.javascript)
+        # 草稿恢复处理
+        self.assertIn("function handleRestoreDraft", self.javascript)
+        self.assertIn("function handleRequestAutosave", self.javascript)
+        self.assertIn("function loadProjectObject", self.javascript)
+
+    def test_p5_error_recovery_custom_events_coordination(self) -> None:
+        """app.js 与 error-recovery.js 通过 CustomEvent 协作。"""
+        # app.js 监听 restore-draft 和 request-autosave
+        self.assertIn('document.addEventListener("miku:restore-draft"', self.javascript)
+        self.assertIn('document.addEventListener("miku:request-autosave"', self.javascript)
+        # error-recovery.js 监听 state-changed 和 clear-draft
+        self.assertIn('document.addEventListener("miku:state-changed"', self.error_recovery_js)
+        self.assertIn('document.addEventListener("miku:clear-draft"', self.error_recovery_js)
+
+    def test_p5_error_recovery_toast_styles(self) -> None:
+        """错误通知 toast 样式存在，支持 error/warning/info 三级与暗色模式。"""
+        self.assertIn(".error-toast-container", self.styles)
+        self.assertIn(".error-toast", self.styles)
+        self.assertIn(".error-toast-error", self.styles)
+        self.assertIn(".error-toast-warning", self.styles)
+        self.assertIn(".error-toast-info", self.styles)
+        self.assertIn(".error-toast-dismiss", self.styles)
+        self.assertIn("error-toast-slide-in", self.styles)
+        # 暗色模式适配
+        self.assertIn("prefers-color-scheme: dark", self.styles)
 
 
 if __name__ == "__main__":

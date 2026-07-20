@@ -813,6 +813,141 @@
     elements.status.className = `status${kind ? ` ${kind}` : ""}`;
   }
 
+  // ---- P5 错误恢复：自动保存草稿 + 崩溃恢复 ----
+  // 设计：
+  //   - dispatchAutosave() 在每次 renderAll 后调用，派发 miku:state-changed 事件。
+  //     error-recovery.js 监听该事件，防抖 2 秒后保存到 localStorage。
+  //   - 监听 miku:restore-draft 事件：页面加载时若有未恢复的草稿，显示恢复确认。
+  //   - 监听 miku:request-autosave 事件：pagehide 时强制同步保存一次。
+  //   - 导出项目后派发 miku:clear-draft 清除草稿（用户已主动保存）。
+  function dispatchAutosave() {
+    if (!state.analysis) return;
+    try {
+      // 构建最小项目 JSON（复用 exportProject 的序列化逻辑，但不触发下载）。
+      const project = buildProjectObject();
+      const projectJson = JSON.stringify(project);
+      document.dispatchEvent(new CustomEvent("miku:state-changed", {
+        detail: { projectJson },
+      }));
+    } catch (error) {
+      // 序列化失败不阻断用户操作；error-recovery.js 会静默处理。
+    }
+  }
+
+  function buildProjectObject() {
+    if (!state.analysis) return null;
+    return {
+      schema_version: PROJECT_SCHEMA,
+      title: "Miku 歌姬解放计划 · 工作台原型项目（自动保存）",
+      source_audio: {
+        ...state.analysis.source_audio,
+        local_file_name: state.audioFileName,
+        relink_required_after_import: true,
+      },
+      analysis: state.analysis,
+      tempo_map: {
+        sample_rate_hz: state.tempoMap.sampleRateHz,
+        ppq: state.tempoMap.ppq,
+        bpm: state.tempoMap.bpm,
+        first_beat_seconds: state.tempoMap.firstBeatSeconds,
+        first_beat_sample: state.tempoMap.firstBeatSample,
+        first_beat_tick: state.tempoMap.firstBeatTick,
+      },
+      anchors: serializeAnchors(),
+      editing: {
+        selection: state.selection,
+        lyrics: state.lyrics.map(region => ({
+          id: region.id, start_anchor_id: region.startAnchorId, end_anchor_id: region.endAnchorId,
+          language: region.language, text: region.text,
+        })),
+        rests: state.rests.map(rest => ({
+          id: rest.id, start_anchor_id: rest.startAnchorId, end_anchor_id: rest.endAnchorId, kind: rest.kind,
+        })),
+        chord_overrides: state.chordOverrides,
+        locked_fields: serializeLockedFields(),
+        stem_tracks: state.stemTracks.map(track => ({
+          id: track.id, name: track.name, role: track.role, mute: track.mute, solo: track.solo,
+          gain: track.gain, pan: track.pan, source: track.source,
+          trim_start_seconds: finiteNumber(track.trimStartSeconds, 0),
+          trim_end_seconds: finiteNumber(track.trimEndSeconds, 0),
+          fade_in_seconds: finiteNumber(track.fadeInSeconds, 0),
+          fade_out_seconds: finiteNumber(track.fadeOutSeconds, 0),
+        })),
+        notes: state.notes.map(note => ({
+          id: note.id, stem_id: note.stemId, start_anchor_id: note.startAnchorId, end_anchor_id: note.endAnchorId,
+          pitch: note.pitch, velocity: note.velocity, confidence: note.confidence, source: note.source,
+        })),
+        syllables: state.syllables.map(syllable => ({
+          id: syllable.id, lyric_id: syllable.lyricId, index: syllable.index, text: syllable.text,
+          default_reading: syllable.defaultReading, reading_override: syllable.readingOverride || "",
+          start_anchor_id: syllable.startAnchorId, end_anchor_id: syllable.endAnchorId,
+        })),
+        breath_marks: state.breathMarks.map(mark => ({
+          id: mark.id, anchor_id: mark.anchorId, intensity: mark.intensity, locked: !!mark.locked,
+        })),
+        param_curves: state.paramCurves.map(curve => ({
+          id: curve.id, note_id: curve.noteId, kind: curve.kind,
+          points: Array.isArray(curve.points) ? curve.points.map(p => ({ tick: p.tick, value: p.value })) : [],
+          locked: !!curve.locked,
+        })),
+        candidates: state.candidates.map(cand => ({
+          id: cand.id, label: cand.label, created_at: cand.createdAt,
+          notes: Array.isArray(cand.notes) ? cand.notes.map(n => ({ ...n })) : [],
+          syllables: Array.isArray(cand.syllables) ? cand.syllables.map(s => ({ ...s })) : [],
+          breath_marks: Array.isArray(cand.breathMarks) ? cand.breathMarks.map(b => ({ ...b })) : [],
+        })),
+        harmony_tracks: state.harmonyTracks.map(track => ({
+          id: track.id, name: track.name, mute: track.mute, solo: track.solo, gain: track.gain,
+        })),
+        preferences: {
+          snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics,
+          dotted_snap: state.dottedSnap, swing_amount: state.swingAmount,
+          stem_preview_mode: state.stemPreviewMode,
+        },
+      },
+    };
+  }
+
+  function handleRestoreDraft(event) {
+    const detail = event && event.detail;
+    if (!detail || !detail.projectJson) return;
+    const timestamp = detail.timestamp || 0;
+    const date = new Date(timestamp);
+    const timeStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    // 用 confirm 对话框让用户决定是否恢复草稿。
+    // 在 Electron 中 confirm 可用；在浏览器中也可用。
+    const confirmed = window.confirm(
+      `检测到未恢复的自动保存草稿（${timeStr}）。\n\n是否恢复？点击"确定"加载草稿，点击"取消"丢弃草稿。`
+    );
+    if (confirmed) {
+      try {
+        const project = JSON.parse(detail.projectJson);
+        loadProjectObject(project);
+        setStatus(`已恢复自动保存的草稿（${timeStr}）。请重新关联本地 WAV 才能播放。`, "success");
+      } catch (error) {
+        setStatus(`草稿恢复失败：${error.message}`, "error");
+      }
+    } else {
+      // 用户选择丢弃：清除草稿。
+      document.dispatchEvent(new CustomEvent("miku:clear-draft"));
+    }
+  }
+
+  function handleRequestAutosave() {
+    // pagehide 时强制同步保存一次。
+    if (!state.analysis) return;
+    try {
+      const project = buildProjectObject();
+      const projectJson = JSON.stringify(project);
+      document.dispatchEvent(new CustomEvent("miku:state-changed", {
+        detail: { projectJson },
+      }));
+    } catch (error) {
+      // 静默
+    }
+  }
+
+
   function finiteNumber(value, fallback = 0) {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : fallback;
@@ -2734,6 +2869,8 @@
     renderCandidateCompareSummary();
     renderHarmonyTrackSelector();
     updateTransport();
+    // P5：每次渲染后派发自动保存事件（error-recovery.js 防抖保存到 localStorage）。
+    dispatchAutosave();
   }
 
   function timeFromPointer(event) {
@@ -3359,6 +3496,8 @@
     };
     bridge.downloadJson("miku-workbench-project.json", project);
     setStatus("项目已导出。音频本体未写入项目，请在重新打开后手动关联。", "success");
+    // P5：用户已主动导出项目，清除自动保存的草稿避免下次打开时提示恢复。
+    document.dispatchEvent(new CustomEvent("miku:clear-draft"));
   }
 
   function importAnchorsAndRegions(project, analysis) {
@@ -3844,6 +3983,11 @@
 
   async function importProject(file) {
     const candidate = await readJsonFile(file);
+    loadProjectObject(candidate);
+  }
+
+  // P5：从已解析的项目对象加载状态（供 importProject 和草稿恢复共用）。
+  function loadProjectObject(candidate) {
     // P4：支持 0.4.0（当前）、0.3.0（自动迁移空 P4 字段）、0.2.0（自动迁移派生 syllables）、0.1.0（深度迁移）。
     if (candidate.schema_version !== PROJECT_SCHEMA
         && candidate.schema_version !== PROJECT_SCHEMA_LEGACY
@@ -3890,6 +4034,7 @@
     renderAll();
   }
 
+
   // ---- 事件绑定 ---------------------------------------------------------------
 
   // P5：新手引导页事件绑定。onboarding.js 也会绑定这些按钮做 UI 层切换；
@@ -3914,6 +4059,11 @@
       setStatus(`示例项目加载失败：${error.message}`, "error");
     }
   });
+
+  // P5 错误恢复事件绑定：草稿恢复 + 强制自动保存。
+  document.addEventListener("miku:restore-draft", handleRestoreDraft);
+  document.addEventListener("miku:request-autosave", handleRequestAutosave);
+
   if (elements.skipOnboardingButton) {
     elements.skipOnboardingButton.addEventListener("click", () => {
       const dontShowAgain = !!(elements.dontShowAgain && elements.dontShowAgain.checked);
