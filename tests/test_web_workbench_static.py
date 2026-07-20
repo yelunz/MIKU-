@@ -622,6 +622,70 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn('"ア": "a"', self.javascript)
         self.assertIn('"ッ": "cl"', self.javascript)
 
+    def test_pinyin_table_expanded_to_500_plus(self) -> None:
+        # PINYIN_TABLE 必须扩展到 500+ 字（覆盖现代汉语一级常用字中歌词高频字）
+        match = re.search(r"const PINYIN_TABLE = \{(.*?)\};", self.javascript, re.DOTALL)
+        self.assertIsNotNone(match, "PINYIN_TABLE 块未找到")
+        block = match.group(1)
+        pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', block)
+        self.assertGreaterEqual(len(pairs), 500,
+                                f"PINYIN_TABLE 仅 {len(pairs)} 字，要求 >= 500")
+
+    def test_pinyin_table_covers_extended_emotion_chars(self) -> None:
+        # 抒情与意境组扩展字（愁/苦/痛/悲/喜/乐/欢/美/丽/真）
+        for char, pinyin in [
+            ("愁", "chou"), ("苦", "ku"), ("痛", "tong"), ("悲", "bei"),
+            ("喜", "xi"), ("乐", "le"), ("欢", "huan"),
+            ("美", "mei"), ("丽", "li"), ("真", "zhen"),
+        ]:
+            self.assertIn(f'"{char}": "{pinyin}"', self.javascript,
+                          f"缺失扩展情感字 {char} -> {pinyin}")
+
+    def test_pinyin_table_covers_extended_nature_chars(self) -> None:
+        # 自然与景物组扩展字（山/河/海/湖/云/雾/雷/电）
+        for char, pinyin in [
+            ("山", "shan"), ("河", "he"), ("海", "hai"), ("湖", "hu"),
+            ("云", "yun"), ("雾", "wu"), ("雷", "lei"), ("电", "dian"),
+        ]:
+            self.assertIn(f'"{char}": "{pinyin}"', self.javascript,
+                          f"缺失扩展自然字 {char} -> {pinyin}")
+
+    def test_pinyin_table_covers_extended_action_chars(self) -> None:
+        # 动作与状态组扩展字（说/唱/哭/笑/飞/舞/抱/牵）
+        for char, pinyin in [
+            ("说", "shuo"), ("唱", "chang"), ("哭", "ku"), ("笑", "xiao"),
+            ("飞", "fei"), ("舞", "wu"), ("抱", "bao"), ("牵", "qian"),
+        ]:
+            self.assertIn(f'"{char}": "{pinyin}"', self.javascript,
+                          f"缺失扩展动作字 {char} -> {pinyin}")
+
+    def test_kana_romaji_table_covers_voiced_syllables(self) -> None:
+        # 浊音 / 半浊音行首（が/ざ/だ/ば/ぱ）
+        for kana, romaji in [
+            ("が", "ga"), ("ざ", "za"), ("だ", "da"), ("ば", "ba"), ("ぱ", "pa"),
+        ]:
+            self.assertIn(f'"{kana}": "{romaji}"', self.javascript,
+                          f"缺失浊音/半浊音 {kana} -> {romaji}")
+
+    def test_kana_romaji_table_covers_small_kana(self) -> None:
+        # 小写假名（ぁぃぅぇぉ）单独映射为单元音
+        for kana, romaji in [
+            ("ぁ", "a"), ("ぃ", "i"), ("ぅ", "u"), ("ぇ", "e"), ("ぉ", "o"),
+        ]:
+            self.assertIn(f'"{kana}": "{romaji}"', self.javascript,
+                          f"缺失小写假名 {kana} -> {romaji}")
+
+    def test_pinyin_table_no_tone_numbers(self) -> None:
+        # 所有拼音 value 不得包含数字 0-9（去声调，只保留拼音字母）
+        match = re.search(r"const PINYIN_TABLE = \{(.*?)\};", self.javascript, re.DOTALL)
+        self.assertIsNotNone(match, "PINYIN_TABLE 块未找到")
+        block = match.group(1)
+        pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', block)
+        self.assertGreaterEqual(len(pairs), 500)
+        for char, pinyin in pairs:
+            self.assertNotRegex(pinyin, r"[0-9]",
+                                f"拼音含声调数字: {char} -> {pinyin}")
+
     def test_syllable_split_functions_present(self) -> None:
         # 三个核心切分函数
         self.assertIn("function splitLyricToSyllables", self.javascript)
