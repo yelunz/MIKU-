@@ -52,7 +52,7 @@
 ## 用户反馈后的 P1 拆分
 
 - `P1.1 编辑器手感`：空格播放、点击定位、节拍吸附、边缘手柄、共享边界、显式休止、缩放锚点和键盘微调。已实现空格、1/1–1/4 拍吸附、Alt 绕过、选区手柄、连续歌词小缝闭合、空段提示、sample + PPQ 960 + 共享 Anchor 双时间模型、显式 `RestEvent` 一等数据、共享边手柄、0.1.0 → 0.2.0 兼容迁移、撤销/重做栈（EditGraph 第一版）、歌词块整体拖动/边缘拉伸、缩放锚点（滑块视口中心 + Ctrl+滚轮鼠标位置）、播放头自动滚动跟随（用户滚动 1.5 秒暂停）、字段级锁定（歌词/休止/和弦修正，含撤销栈与项目持久化）；仍需真实浏览器回归。
-- `P1.2 多轨与音符工作台`：sample + PPQ 960 + Anchor 模型，伴奏 stem、鼓点、贝斯/和声音符候选、钢琴卷帘、量化、反拍、三连音、Swing 和非破坏混音。已实现多轨 stem 混音器（master/drums/bass/other 4 轨，mute/solo/gain/pan，master 通过 Web Audio API 真实生效，占位 stem 保存参数但不播放，含撤销栈与项目持久化）；仍需钢琴卷帘 + NoteEvent、量化网格与原始/重合成试听切换。
+- `P1.2 多轨与音符工作台`：sample + PPQ 960 + Anchor 模型，伴奏 stem、鼓点、贝斯/和声音符候选、钢琴卷帘、量化、反拍、三连音、Swing 和非破坏混音。已实现多轨 stem 混音器（master/drums/bass/other 4 轨，mute/solo/gain/pan，master 通过 Web Audio API 真实生效，占位 stem 保存参数但不播放，含撤销栈与项目持久化）；已实现钢琴卷帘 + NoteEvent 数据模型（C2..C7 60 半音 14px 行高，create/move/stretch-start/stretch-end 四种交互，split 中点拆分，merge 同音高且时间相邻合并，source 区分 manual/transcription/generation 颜色，共享 anchor detach，Esc/Delete 快捷键，撤销栈与项目持久化，0.1.0 迁移清空 notes）；仍需量化网格与原始/重合成试听切换。
 - `P1.3 分析后端对比`：快速分析库、单乐器音频转 MIDI、4-stem 分离和下拍/拍号后端的准确率、性能、许可与三平台验证。
 - 完成上述数据边界后再把工作台封装到 Electron/Tauri 候选，避免先把不完整的波形查看器固化成桌面应用。
 

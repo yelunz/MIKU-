@@ -335,6 +335,111 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn(".stem-master", self.styles)
         self.assertIn(".stem-placeholder", self.styles)
 
+    def test_piano_roll_and_note_events_are_present(self) -> None:
+        # NoteEvent 数据模型字段
+        self.assertIn("state.notes", self.javascript)
+        self.assertIn("state.nextNoteId", self.javascript)
+        self.assertIn("state.selectedNoteId", self.javascript)
+        self.assertIn("state.noteDrag", self.javascript)
+        self.assertIn("state.pianoRollStemId", self.javascript)
+        self.assertIn("state.pianoRollMergeCandidateId", self.javascript)
+        # 钢琴卷帘常量与工具函数
+        self.assertIn("PIANO_ROLL_MIN_PITCH = 36", self.javascript)
+        self.assertIn("PIANO_ROLL_MAX_PITCH = 96", self.javascript)
+        self.assertIn("PIANO_ROLL_ROW_HEIGHT", self.javascript)
+        self.assertIn("function midiToNoteName", self.javascript)
+        self.assertIn("function isBlackKey", self.javascript)
+        # NoteEvent CRUD 函数
+        self.assertIn("function createNote", self.javascript)
+        self.assertIn("function deleteNote", self.javascript)
+        self.assertIn("function selectNote", self.javascript)
+        self.assertIn("function splitSelectedNote", self.javascript)
+        self.assertIn("function mergeSelectedNotes", self.javascript)
+        # 钢琴卷帘渲染与交互
+        self.assertIn("function renderPianoRoll", self.javascript)
+        self.assertIn("function drawPianoRollCanvas", self.javascript)
+        self.assertIn("function buildNoteBlock", self.javascript)
+        self.assertIn("function beginNoteDrag", self.javascript)
+        self.assertIn("function moveNote", self.javascript)
+        self.assertIn("function endNoteDrag", self.javascript)
+        self.assertIn("function cancelNoteDrag", self.javascript)
+        self.assertIn("function beginNoteCreate", self.javascript)
+        self.assertIn("function moveNoteCreate", self.javascript)
+        self.assertIn("function endNoteCreate", self.javascript)
+        self.assertIn("function cancelNoteCreate", self.javascript)
+        self.assertIn("function detachNoteAnchorIfShared", self.javascript)
+        self.assertIn("function timeFromPianoPointer", self.javascript)
+        self.assertIn("function pitchFromPianoPointer", self.javascript)
+        self.assertIn("function updatePianoRollToolButtons", self.javascript)
+        # 三种拖动模式 + create 模式
+        self.assertIn('"stretch-start"', self.javascript)
+        self.assertIn('"stretch-end"', self.javascript)
+        self.assertIn('"move"', self.javascript)
+        self.assertIn('mode: "create"', self.javascript)
+        # 撤销/重做快照包含 notes
+        self.assertIn("notes: state.notes.map(note => ({ ...note }))", self.javascript)
+        self.assertIn("state.notes = Array.isArray(snapshot.notes)", self.javascript)
+        self.assertIn("nextNoteId: state.nextNoteId", self.javascript)
+        # 项目导出包含 notes
+        self.assertIn("notes: state.notes.map(note => ({", self.javascript)
+        self.assertIn("stem_id: note.stemId", self.javascript)
+        self.assertIn("start_anchor_id: note.startAnchorId", self.javascript)
+        self.assertIn("end_anchor_id: note.endAnchorId", self.javascript)
+        self.assertIn("pitch: note.pitch", self.javascript)
+        self.assertIn("velocity: note.velocity", self.javascript)
+        self.assertIn("confidence: note.confidence", self.javascript)
+        self.assertIn("source: note.source", self.javascript)
+        # 项目导入包含 notes 加载与校验
+        self.assertIn("const rawNotes = Array.isArray(editing.notes)", self.javascript)
+        self.assertIn("音符 ID 重复", self.javascript)
+        self.assertIn("引用了不存在的 anchor", self.javascript)
+        # 0.1.0 项目迁移时清空 notes
+        self.assertIn("0.1.0 项目没有 notes 字段", self.javascript)
+        # HTML 中的钢琴卷帘容器与控件
+        self.assertIn('id="piano-roll-scroll"', self.html)
+        self.assertIn('id="piano-roll-content"', self.html)
+        self.assertIn('id="piano-roll-canvas"', self.html)
+        self.assertIn('id="piano-roll-grid"', self.html)
+        self.assertIn('id="piano-roll-stem-select"', self.html)
+        self.assertIn('id="split-note-button"', self.html)
+        self.assertIn('id="merge-note-button"', self.html)
+        self.assertIn('id="delete-note-button"', self.html)
+        # HTML 中的目标 stem 选项
+        self.assertIn('<option value="master">伴奏总览</option>', self.html)
+        self.assertIn('<option value="drums">鼓组</option>', self.html)
+        self.assertIn('<option value="bass">贝斯</option>', self.html)
+        self.assertIn('<option value="other">其他乐器</option>', self.html)
+        # CSS 中的钢琴卷帘样式
+        self.assertIn(".piano-roll-card", self.styles)
+        self.assertIn(".piano-roll-header", self.styles)
+        self.assertIn(".piano-roll-tools", self.styles)
+        self.assertIn(".piano-roll-scroll", self.styles)
+        self.assertIn(".piano-roll-content", self.styles)
+        self.assertIn("#piano-roll-canvas", self.styles)
+        self.assertIn(".piano-roll-grid", self.styles)
+        self.assertIn(".piano-roll-note", self.styles)
+        self.assertIn(".piano-roll-note.selected", self.styles)
+        self.assertIn(".piano-roll-note.merge-candidate", self.styles)
+        self.assertIn(".piano-roll-note.preview", self.styles)
+        self.assertIn(".piano-roll-note.source-transcription", self.styles)
+        self.assertIn(".piano-roll-note.source-generation", self.styles)
+        self.assertIn(".piano-roll-playhead", self.styles)
+        self.assertIn(".piano-roll-footnote", self.styles)
+        # Esc 取消钢琴卷帘拖动/创建；Delete 删除选中音符
+        self.assertIn("state.noteDrag.mode === \"create\"", self.javascript)
+        self.assertIn("cancelNoteCreate()", self.javascript)
+        self.assertIn("cancelNoteDrag()", self.javascript)
+        self.assertIn('event.key === "Delete"', self.javascript)
+        # 钢琴卷帘事件绑定
+        self.assertIn("elements.pianoRollStemSelect.addEventListener", self.javascript)
+        self.assertIn("elements.splitNoteButton.addEventListener", self.javascript)
+        self.assertIn("elements.mergeNoteButton.addEventListener", self.javascript)
+        self.assertIn("elements.deleteNoteButton.addEventListener", self.javascript)
+        self.assertIn("elements.pianoRollGrid.addEventListener", self.javascript)
+        # renderAll 调用 renderPianoRoll
+        self.assertIn("renderPianoRoll()", self.javascript)
+        self.assertIn("updatePianoRollToolButtons()", self.javascript)
+
 
 
 if __name__ == "__main__":

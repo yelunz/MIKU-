@@ -49,6 +49,7 @@ python -m http.server 4173 --directory prototype/web-workbench
 - 播放头自动滚动跟随：播放时若播放头进入视口右 18%，时间轴自动滚动跟随；用户主动滚动后 1.5 秒内暂停自动跟随，避免抢走用户的主动定位。
 - 字段级锁定：歌词、休止、和弦修正可在检查器勾选"锁定"防止未来重生成覆盖；锁定状态随 EditGraph 快照、项目导出/导入一并持久化；锁定阻止删除与恢复原值，但允许用户主动编辑；时间轴块显示 🔒 标记。
 - 多轨 stem 混音器（P1.2 轮 1）：默认 4 条 stem 轨（伴奏总览 / 鼓组 / 贝斯 / 其他乐器），每条可独立 mute / solo / gain / pan。伴奏总览通过 Web Audio API 真实生效（GainNode + StereoPannerNode），占位 stem 保存参数但不播放，等接入音源分离后端后才会实际发声。混音参数随 EditGraph 快照、项目导出/导入一并持久化；拖动结束才记 undo，避免每个像素一条历史。
+- 钢琴卷帘与 NoteEvent 数据模型（P1.2 轮 2）：C2..C7 共 60 半音，14px 行高，含小节/拍线网格。在空白处拖出新音符；点击选中并编辑；拖动音符整体移动；拖动左右边缘拉伸起止；Shift + 点击第二个音符设为合并候选；按钮支持中点拆分、合并相邻同音高音符、删除选中音符。音符引用 start/end anchor，与歌词/休止共享同一 anchor 表，相邻边界对齐时自动复用 anchor；拖动前克隆共享 anchor 保持邻居不动。source 字段区分 manual / transcription / generation，对应不同颜色。Esc 取消当前拖动/创建，Delete 删除选中音符，Ctrl/Cmd + 滚轮缩放。音符与 nextNoteId 随 EditGraph 快照、项目导出/导入一并持久化；0.1.0 项目迁移时清空 notes。
 - 修改和恢复和弦候选；用户修正保存在独立覆盖层，不改写源分析 JSON。
 - 导出/导入项目 schema `0.2.0`，包含 tempo_map、anchors、lyrics（anchor_id 引用）、rests、chord_overrides、locked_fields 与偏好；导入时校验 anchor 唯一、引用有效、region 不重叠，并丢弃指向已删除对象的锁定项。
 - 兼容导入旧版 `0.1.0` 项目：按秒数边界迁移到 0.2.0 共享 anchor 模型，相邻歌词自动复用同一 anchor；0.1.0 没有锁定概念，迁移时清空锁定字段；导入后状态栏会明确提示已迁移。
@@ -60,7 +61,8 @@ python -m http.server 4173 --directory prototype/web-workbench
 - 这是浏览器技术原型，还没有 Electron/Tauri 桥接、原生文件对话框或安装包。
 - 项目文件尚未包含读音、音素或演唱草稿。
 - 撤销栈不区分"操作类型"也不支持分支历史；超大快捷操作（如批量重生成）尚未有"折叠为一步"的机制。
-- 当前还没有可编辑音符轨、钢琴卷帘、反拍/三连音网格；stem 混音器已落地，但 drums/bass/other 是占位 stem（无分离音频），等接入 Demucs / Basic Pitch 后端后才会实际播放与转录。
+- 钢琴卷帘已落地，但所有音符都是用户手工创建（source=manual）；等接入 Basic Pitch / Demucs 后端后才会有 source=transcription 的转录音符。当前还没有量化、反拍、三连音、附点、Swing 网格（snap 只支持 1/1/1/2/1/4 拍）。
+- stem 混音器已落地，但 drums/bass/other 是占位 stem（无分离音频），等接入 Demucs / Basic Pitch 后端后才会实际播放与转录。
 - 浏览器不能在重新打开项目后静默访问原音频，必须重新选择文件。
 - 分析 CLI 当前只接受未压缩整数 PCM WAV；和弦与段落准确率仍未通过完整验收。
-- 三平台浏览器和高 DPI/输入法测试尚未完成；本轮新交互（stem 混音器）尚未经过真实浏览器回归。
+- 三平台浏览器和高 DPI/输入法测试尚未完成；本轮新交互（钢琴卷帘）尚未经过真实浏览器回归。

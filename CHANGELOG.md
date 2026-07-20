@@ -27,6 +27,7 @@
 - 新增播放头自动滚动跟随：播放时若播放头进入视口右 18%，时间轴自动滚动跟随；用户主动滚动后 1.5 秒内暂停自动跟随，避免抢走用户的主动定位。
 - 新增字段级锁定：歌词、休止、和弦修正可在检查器勾选"锁定"防止未来重生成覆盖；锁定状态随 EditGraph 快照、项目导出/导入一并持久化；锁定阻止删除与恢复原值，但允许用户主动编辑；时间轴块显示 🔒 标记。
 - 新增多轨 stem 混音器：默认 4 条 stem 轨（伴奏总览 / 鼓组 / 贝斯 / 其他乐器），每条可独立 mute / solo / gain / pan；伴奏总览通过 Web Audio API（GainNode + StereoPannerNode）真实生效，占位 stem 保存参数但不播放；混音参数随 EditGraph 快照、项目导出/导入一并持久化；独奏模式下未独奏轨道自动静音；拖动结束才记 undo 避免历史污染。
+- 新增钢琴卷帘与 NoteEvent 数据模型（P1.2 轮 2）：用户可在时间轴上手工创建、移动、拉伸、拆分和合并音符候选；音符引用 start/end anchor，与歌词/休止共享同一 anchor 表，相邻音符若边界对齐会自动复用 anchor；C2..C7 共 60 半音行高 14px；四种交互模式（move / stretch-start / stretch-end / create）统一在 noteDrag 状态机；source 字段区分 manual / transcription / generation，对应不同颜色；导入时严格校验 ID 唯一、anchor 引用、stem_id 集合、pitch / velocity / confidence 范围与 source 枚举；0.1.0 项目迁移时清空 notes。
 
 ### Changed
 

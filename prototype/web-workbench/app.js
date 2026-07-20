@@ -57,7 +57,37 @@
     // drums/bass/other 是占位 stem（无分离音频），只保存参数与展示 UI，
     // 等 Demucs 等音源分离后端接入后才会真实播放。
     stemTracks: defaultStemTracks(),
+    // NoteEvent 数据模型（P1.2 轮 2）：可编辑的音符候选。
+    // 每个音符引用 start/end anchor（与歌词/休止共享时间模型），
+    // 浮点 MIDI pitch（60 = C4），velocity 0..1，confidence 0..1，
+    // source 标注来源（manual / transcription / generation）。
+    // 第一版没有真实转录后端，所有音符都是用户手工创建或后续从 Basic Pitch 等后端导入。
+    notes: [],
+    nextNoteId: 1,
+    selectedNoteId: null,
+    // 钢琴卷帘拖动状态：{ noteId, mode, startClientX, startClientY, startStartSample, startEndSample, startPitch, beganEdit, detachedStart, detachedEnd }
+    noteDrag: null,
+    // 钢琴卷帘当前选中的 stem 轨（决定新音符创建在哪个 stem）。
+    pianoRollStemId: "master",
+    // 钢琴卷帘选中用于合并的第二个音符（按住 Shift 点击选中第二个 → 合并按钮可用）。
+    pianoRollMergeCandidateId: null,
   };
+
+  // 音高范围：C2 (36) .. C7 (96)，共 60 个半音。第一版用此固定范围。
+  const PIANO_ROLL_MIN_PITCH = 36;
+  const PIANO_ROLL_MAX_PITCH = 96;
+  const PIANO_ROLL_ROW_HEIGHT = 14; // px
+
+  function midiToNoteName(midi) {
+    const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const octave = Math.floor(midi / 12) - 1;
+    return `${names[((midi % 12) + 12) % 12]}${octave}`;
+  }
+
+  function isBlackKey(midi) {
+    const within = ((midi % 12) + 12) % 12;
+    return within === 1 || within === 3 || within === 6 || within === 8 || within === 10;
+  }
 
   function defaultStemTracks() {
     return [
@@ -162,6 +192,9 @@
         lockedFields: Array.from(state.lockedFields),
         // stem 轨混音参数也是用户编辑的一部分，撤销/重做时一并恢复。
         stemTracks: state.stemTracks.map(track => ({ ...track })),
+        // 音符候选也是用户编辑的一部分，撤销/重做时一并恢复（P1.2 轮 2 起）。
+        notes: state.notes.map(note => ({ ...note })),
+        nextNoteId: state.nextNoteId,
       };
     },
 
@@ -181,6 +214,12 @@
       state.stemTracks = Array.isArray(snapshot.stemTracks) && snapshot.stemTracks.length
         ? snapshot.stemTracks.map(track => ({ ...track }))
         : defaultStemTracks();
+      // 音符候选可能在旧版快照中不存在（P1.2 轮 2 之前），缺失时清空。
+      state.notes = Array.isArray(snapshot.notes) ? snapshot.notes.map(note => ({ ...note })) : [];
+      state.nextNoteId = Number.isFinite(snapshot.nextNoteId) ? snapshot.nextNoteId : 1;
+      state.selectedNoteId = null;
+      state.noteDrag = null;
+      state.pianoRollMergeCandidateId = null;
       // 恢复后清除选中编辑器视图，避免引用已不存在的 region
       elements.lyricText.value = "";
       elements.lyricLanguage.value = "zh";
@@ -291,6 +330,14 @@
     lockRestWrapper: byId("lock-rest-wrapper"),
     lockRestCheckbox: byId("lock-rest-checkbox"),
     stemMixer: byId("stem-mixer"),
+    pianoRollScroll: byId("piano-roll-scroll"),
+    pianoRollContent: byId("piano-roll-content"),
+    pianoRollCanvas: byId("piano-roll-canvas"),
+    pianoRollGrid: byId("piano-roll-grid"),
+    pianoRollStemSelect: byId("piano-roll-stem-select"),
+    splitNoteButton: byId("split-note-button"),
+    mergeNoteButton: byId("merge-note-button"),
+    deleteNoteButton: byId("delete-note-button"),
   };
 
   function setStatus(message, kind = "") {
@@ -599,6 +646,15 @@
     state.lockedFields = new Set();
     // stem 轨混音参数重置为默认；新项目里旧的混音参数无意义。
     state.stemTracks = defaultStemTracks();
+    // 音符候选清空；新项目里旧的音符无意义。
+    state.notes = [];
+    state.nextNoteId = 1;
+    state.selectedNoteId = null;
+    state.noteDrag = null;
+    state.pianoRollMergeCandidateId = null;
+    state.pianoRollStemId = "master";
+    if (elements.pianoRollStemSelect) elements.pianoRollStemSelect.value = "master";
+    updatePianoRollToolButtons();
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
@@ -1370,6 +1426,469 @@
     return String(value);
   }
 
+  // ---- NoteEvent 数据模型（P1.2 轮 2）-----------------------------------------
+  // 每个 note 引用 start/end anchor（与歌词/休止共享时间模型），
+  // 浮点 pitch（60 = C4），velocity 0..1，confidence 0..1，
+  // source 标注来源（manual / transcription / generation）。
+  // 第一版所有音符都是用户手工创建或后续从转录后端导入；这里只负责 CRUD 与渲染。
+
+  function createNote(stemId, startSample, endSample, pitch, velocity = 0.8, source = "manual") {
+    if (!state.tempoMap) return null;
+    const safeStart = Math.max(0, Math.min(Math.round(startSample), Math.round(state.duration * state.sampleRateHz)));
+    const safeEnd = Math.max(safeStart + 1, Math.min(Math.round(endSample), Math.round(state.duration * state.sampleRateHz)));
+    const safePitch = clamp(Math.round(pitch), PIANO_ROLL_MIN_PITCH, PIANO_ROLL_MAX_PITCH);
+    const startAnchor = findAnchorBySample(safeStart) || createAnchorAtSample(safeStart);
+    const endAnchor = findAnchorBySample(safeEnd) || createAnchorAtSample(safeEnd);
+    let identifier;
+    do {
+      identifier = `note-${state.nextNoteId++}`;
+    } while (state.notes.some(note => note.id === identifier));
+    const note = {
+      id: identifier,
+      stemId: stemId || "master",
+      startAnchorId: startAnchor.id,
+      endAnchorId: endAnchor.id,
+      pitch: safePitch,
+      velocity: clamp(velocity, 0, 1),
+      confidence: source === "manual" ? 1 : 0,
+      source,
+    };
+    state.notes.push(note);
+    return note;
+  }
+
+  function deleteNote(id) {
+    const note = state.notes.find(item => item.id === id);
+    if (!note) return;
+    editGraph.begin(`删除音符 ${id}`);
+    state.notes = state.notes.filter(item => item.id !== id);
+    if (state.selectedNoteId === id) state.selectedNoteId = null;
+    if (state.pianoRollMergeCandidateId === id) state.pianoRollMergeCandidateId = null;
+    pruneAnchors();
+    renderPianoRoll();
+    updatePianoRollToolButtons();
+    setStatus(`已删除音符 ${id}。`, "success");
+  }
+
+  // 选中音符；additive=true 时把当前 click 视为"合并候选"选择（Shift 修饰）。
+  function selectNote(id, additive = false) {
+    if (additive && state.selectedNoteId && id !== state.selectedNoteId) {
+      state.pianoRollMergeCandidateId = id;
+    } else {
+      state.selectedNoteId = id;
+      if (!additive) state.pianoRollMergeCandidateId = null;
+    }
+    const note = state.notes.find(item => item.id === id);
+    if (note) {
+      const startSeconds = anchorStartSeconds(note);
+      const endSeconds = anchorEndSeconds(note);
+      setSelection(startSeconds, endSeconds, false);
+      setStatus(`已选中音符 ${id}：${midiToNoteName(note.pitch)} · ${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒。`, "success");
+    }
+    renderPianoRoll();
+    updatePianoRollToolButtons();
+  }
+
+  function splitSelectedNote() {
+    if (!state.selectedNoteId) return;
+    const note = state.notes.find(item => item.id === state.selectedNoteId);
+    if (!note) return;
+    const startSample = anchorStartSample(note);
+    const endSample = anchorEndSample(note);
+    const midSample = Math.round((startSample + endSample) / 2);
+    if (endSample - startSample < 2) {
+      setStatus("音符太短，无法拆分。", "error");
+      return;
+    }
+    editGraph.begin(`拆分音符 ${note.id}`);
+    // 把当前音符的 end 缩到中点，再创建一个新音符从中点到原 end。
+    const midAnchor = findAnchorBySample(midSample) || createAnchorAtSample(midSample);
+    note.endAnchorId = midAnchor.id;
+    const newNote = createNote(note.stemId, midSample, endSample, note.pitch, note.velocity, note.source);
+    state.selectedNoteId = newNote ? newNote.id : note.id;
+    state.pianoRollMergeCandidateId = null;
+    pruneAnchors();
+    renderPianoRoll();
+    updatePianoRollToolButtons();
+    setStatus(`已拆分音符 ${note.id} → ${note.id} + ${newNote ? newNote.id : "?"}。`, "success");
+  }
+
+  function mergeSelectedNotes() {
+    if (!state.selectedNoteId || !state.pianoRollMergeCandidateId) return;
+    if (state.selectedNoteId === state.pianoRollMergeCandidateId) return;
+    const a = state.notes.find(item => item.id === state.selectedNoteId);
+    const b = state.notes.find(item => item.id === state.pianoRollMergeCandidateId);
+    if (!a || !b) return;
+    if (a.pitch !== b.pitch) {
+      setStatus("只有音高相同的音符才能合并。", "error");
+      return;
+    }
+    let first, second;
+    if (anchorStartSample(a) < anchorStartSample(b)) {
+      first = a; second = b;
+    } else {
+      first = b; second = a;
+    }
+    if (Math.abs(anchorEndSample(first) - anchorStartSample(second)) > Math.round(ANCHOR_TOLERANCE_SECONDS * state.sampleRateHz)) {
+      setStatus("只有时间相邻的音符才能合并。", "error");
+      return;
+    }
+    editGraph.begin(`合并音符 ${first.id} 与 ${second.id}`);
+    first.endAnchorId = second.endAnchorId;
+    state.notes = state.notes.filter(item => item.id !== second.id);
+    state.selectedNoteId = first.id;
+    state.pianoRollMergeCandidateId = null;
+    pruneAnchors();
+    renderPianoRoll();
+    updatePianoRollToolButtons();
+    setStatus(`已合并音符 → ${first.id}。`, "success");
+  }
+
+  // 钢琴卷帘工具按钮可用性：拆分需要选中；合并需要选中 + 候选；删除需要选中。
+  function updatePianoRollToolButtons() {
+    const hasSelection = Boolean(state.selectedNoteId);
+    const hasMergeCandidate = Boolean(state.pianoRollMergeCandidateId) && state.pianoRollMergeCandidateId !== state.selectedNoteId;
+    if (elements.splitNoteButton) elements.splitNoteButton.disabled = !hasSelection;
+    if (elements.mergeNoteButton) elements.mergeNoteButton.disabled = !(hasSelection && hasMergeCandidate);
+    if (elements.deleteNoteButton) elements.deleteNoteButton.disabled = !hasSelection;
+  }
+
+  // ---- 钢琴卷帘渲染 -----------------------------------------------------------
+  // 横向是时间（与时间轴共用 timelineWidth），纵向是音高（C2..C7，60 半音）。
+  // canvas 渲染音高网格（黑白键、C 标记），DOM 渲染音符块（便于拖动交互）。
+  function renderPianoRoll() {
+    if (!elements.pianoRollContent) return;
+    const width = Math.max(timelineWidth(), 640);
+    elements.pianoRollContent.style.width = `${width}px`;
+    const height = (PIANO_ROLL_MAX_PITCH - PIANO_ROLL_MIN_PITCH + 1) * PIANO_ROLL_ROW_HEIGHT;
+    elements.pianoRollContent.style.height = `${height}px`;
+    drawPianoRollCanvas(width, height);
+    // 重建音符块（保留 canvas，清空 grid 后重建）
+    const grid = elements.pianoRollGrid;
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+    state.notes.forEach(note => {
+      const block = buildNoteBlock(note);
+      if (block) grid.appendChild(block);
+    });
+    // 同步播放头
+    if (state.audioUrl && state.analysis) {
+      const playhead = document.createElement("div");
+      playhead.className = "piano-roll-playhead";
+      playhead.style.left = percentAt(elements.audio.currentTime);
+      grid.appendChild(playhead);
+    }
+  }
+
+  function drawPianoRollCanvas(width, height) {
+    const canvas = elements.pianoRollCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const style = getComputedStyle(document.documentElement);
+    const surface = style.getPropertyValue("--surface-soft").trim() || "#f8f9fc";
+    const border = style.getPropertyValue("--border").trim() || "#d7dce5";
+    const muted = style.getPropertyValue("--muted").trim() || "#667085";
+    ctx.fillStyle = surface;
+    ctx.fillRect(0, 0, width, height);
+    for (let midi = PIANO_ROLL_MIN_PITCH; midi <= PIANO_ROLL_MAX_PITCH; midi += 1) {
+      const y = (PIANO_ROLL_MAX_PITCH - midi) * PIANO_ROLL_ROW_HEIGHT;
+      if (isBlackKey(midi)) {
+        ctx.fillStyle = "rgba(0,0,0,0.06)";
+        ctx.fillRect(0, y, width, PIANO_ROLL_ROW_HEIGHT);
+      }
+      if (midi % 12 === 0) {
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, y + PIANO_ROLL_ROW_HEIGHT);
+        ctx.lineTo(width, y + PIANO_ROLL_ROW_HEIGHT);
+        ctx.stroke();
+        ctx.fillStyle = muted;
+        ctx.font = "10px ui-monospace, monospace";
+        ctx.fillText(midiToNoteName(midi), 4, y + PIANO_ROLL_ROW_HEIGHT - 3);
+      }
+    }
+    if (state.analysis && state.duration > 0) {
+      const targetSpacing = 86;
+      const rawStep = state.duration / Math.max(1, Math.floor(width / targetSpacing));
+      const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
+      const step = candidates.find(value => value >= rawStep) || 120;
+      ctx.strokeStyle = border;
+      ctx.lineWidth = 1;
+      for (let time = 0; time <= state.duration + 1e-6; time += step) {
+        const x = (time / state.duration) * width;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function buildNoteBlock(note) {
+    const startSample = anchorStartSample(note);
+    const endSample = anchorEndSample(note);
+    const startSeconds = sampleToSeconds(startSample);
+    const endSeconds = sampleToSeconds(endSample);
+    if (endSeconds <= startSeconds) return null;
+    const block = document.createElement("button");
+    block.type = "button";
+    block.className = "piano-roll-note";
+    block.dataset.noteId = note.id;
+    block.textContent = midiToNoteName(note.pitch);
+    block.title = `${note.id} · ${midiToNoteName(note.pitch)} · ${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · velocity ${(note.velocity * 100).toFixed(0)}% · 来源 ${note.source}`;
+    block.style.left = percentAt(startSeconds);
+    block.style.width = percentAt(Math.max(0, endSeconds - startSeconds));
+    block.style.top = `${(PIANO_ROLL_MAX_PITCH - note.pitch) * PIANO_ROLL_ROW_HEIGHT}px`;
+    block.style.height = `${PIANO_ROLL_ROW_HEIGHT - 1}px`;
+    if (state.selectedNoteId === note.id) block.classList.add("selected");
+    if (state.pianoRollMergeCandidateId === note.id) block.classList.add("merge-candidate");
+    if (note.source === "transcription") block.classList.add("source-transcription");
+    else if (note.source === "generation") block.classList.add("source-generation");
+    block.addEventListener("pointerdown", event => beginNoteDrag(event, note));
+    return block;
+  }
+
+  // ---- 钢琴卷帘交互 -----------------------------------------------------------
+  // 行为：
+  //   - 在空白区域 pointerdown + 拖动 → 创建新音符（吸附起止）
+  //   - 在音符上 pointerdown 中间 → move 模式（整体移动）
+  //   - 在音符上 pointerdown 左 8px → stretch-start
+  //   - 在音符上 pointerdown 右 8px → stretch-end
+  //   - 移动距离 < 4px 视为点击 → 选中（Shift 则设为合并候选）
+  //   - 若被移动的 anchor 与其他对象共享，先克隆一个新 anchor 给当前音符。
+  function beginNoteDrag(event, note) {
+    if (!state.analysis || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const offsetLeft = event.clientX - rect.left;
+    const offsetRight = rect.right - event.clientX;
+    const edgeTolerance = 8;
+    let mode;
+    if (offsetLeft <= edgeTolerance) mode = "stretch-start";
+    else if (offsetRight <= edgeTolerance) mode = "stretch-end";
+    else mode = "move";
+    state.noteDrag = {
+      noteId: note.id,
+      mode,
+      startClientX: event.clientX,
+      startStartSample: anchorStartSample(note),
+      startEndSample: anchorEndSample(note),
+      startPitch: note.pitch,
+      originalStartAnchorId: note.startAnchorId,
+      originalEndAnchorId: note.endAnchorId,
+      beganEdit: false,
+      detachedStart: false,
+      detachedEnd: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.addEventListener("pointermove", moveNote, true);
+    document.addEventListener("pointerup", endNoteDrag, true);
+    document.addEventListener("pointercancel", cancelNoteDrag, true);
+  }
+
+  function detachNoteAnchorIfShared(note, which) {
+    const anchorId = which === "start" ? note.startAnchorId : note.endAnchorId;
+    const sharedByNote = state.notes.some(other => other.id !== note.id && (other.startAnchorId === anchorId || other.endAnchorId === anchorId));
+    const sharedByLyric = state.lyrics.some(r => r.startAnchorId === anchorId || r.endAnchorId === anchorId);
+    const sharedByRest = state.rests.some(r => r.startAnchorId === anchorId || r.endAnchorId === anchorId);
+    if (!sharedByNote && !sharedByLyric && !sharedByRest) return false;
+    const original = state.anchors.get(anchorId);
+    if (!original) return false;
+    const cloned = createAnchorAtSample(original.sample);
+    if (which === "start") {
+      note.startAnchorId = cloned.id;
+      state.noteDrag.detachedStart = true;
+    } else {
+      note.endAnchorId = cloned.id;
+      state.noteDrag.detachedEnd = true;
+    }
+    return true;
+  }
+
+  function moveNote(event) {
+    if (!state.noteDrag) return;
+    if (state.noteDrag.mode === "create") return; // create 模式由 moveNoteCreate 处理
+    if (Math.abs(event.clientX - state.noteDrag.startClientX) < 4 && !state.noteDrag.beganEdit) return;
+    const note = state.notes.find(item => item.id === state.noteDrag.noteId);
+    if (!note) return;
+    if (!state.noteDrag.beganEdit) {
+      editGraph.begin(state.noteDrag.mode === "move" ? `拖动音符 ${note.id}` : `拉伸音符 ${note.id}`);
+      state.noteDrag.beganEdit = true;
+      if (state.noteDrag.mode === "move" || state.noteDrag.mode === "stretch-start") {
+        detachNoteAnchorIfShared(note, "start");
+      }
+      if (state.noteDrag.mode === "move" || state.noteDrag.mode === "stretch-end") {
+        detachNoteAnchorIfShared(note, "end");
+      }
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const pointerTime = snapTime(timeFromPianoPointer(event), event.altKey);
+    const pointerSample = secondsToSample(pointerTime);
+    const minSample = 0;
+    const maxSample = Math.round(state.duration * state.sampleRateHz);
+    const minimum = event.altKey ? 1 : Math.max(1, Math.round((snapIntervalSeconds() || 0.001) * state.sampleRateHz));
+    if (state.noteDrag.mode === "move") {
+      const durationSamples = state.noteDrag.startEndSample - state.noteDrag.startStartSample;
+      const newStart = Math.max(minSample, Math.min(maxSample - durationSamples, pointerSample - Math.round(durationSamples / 2)));
+      moveAnchor(note.startAnchorId, newStart);
+      moveAnchor(note.endAnchorId, newStart + durationSamples);
+    } else if (state.noteDrag.mode === "stretch-start") {
+      const endSample = anchorEndSample(note);
+      const newStart = Math.max(minSample, Math.min(endSample - minimum, pointerSample));
+      moveAnchor(note.startAnchorId, newStart);
+    } else if (state.noteDrag.mode === "stretch-end") {
+      const startSample = anchorStartSample(note);
+      const newEnd = Math.max(startSample + minimum, Math.min(maxSample, pointerSample));
+      moveAnchor(note.endAnchorId, newEnd);
+    }
+    setSelection(anchorStartSeconds(note), anchorEndSeconds(note), false);
+    renderPianoRoll();
+  }
+
+  function endNoteDrag(event) {
+    if (!state.noteDrag) return;
+    if (state.noteDrag.mode === "create") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const drag = state.noteDrag;
+    state.noteDrag = null;
+    document.removeEventListener("pointermove", moveNote, true);
+    document.removeEventListener("pointerup", endNoteDrag, true);
+    document.removeEventListener("pointercancel", cancelNoteDrag, true);
+    if (!drag.beganEdit) {
+      // 视为点击：选中音符（Shift 则设为合并候选）
+      selectNote(drag.noteId, event.shiftKey);
+      return;
+    }
+    pruneAnchors();
+    const note = state.notes.find(item => item.id === drag.noteId);
+    if (note) {
+      setStatus(`${drag.mode === "move" ? "音符已移动到" : "音符已拉伸到"} ${anchorStartSeconds(note).toFixed(3)}–${anchorEndSeconds(note).toFixed(3)} 秒。`, "success");
+    }
+  }
+
+  function cancelNoteDrag() {
+    if (!state.noteDrag) return;
+    if (state.noteDrag.mode === "create") return;
+    const drag = state.noteDrag;
+    state.noteDrag = null;
+    document.removeEventListener("pointermove", moveNote, true);
+    document.removeEventListener("pointerup", endNoteDrag, true);
+    document.removeEventListener("pointercancel", cancelNoteDrag, true);
+    if (drag.beganEdit) {
+      editGraph.undoStack.pop();
+      updateUndoRedoButtons();
+    }
+    const note = state.notes.find(item => item.id === drag.noteId);
+    if (note) {
+      if (drag.detachedStart) note.startAnchorId = drag.originalStartAnchorId;
+      if (drag.detachedEnd) note.endAnchorId = drag.originalEndAnchorId;
+    }
+    pruneAnchors();
+    renderPianoRoll();
+    setStatus("系统取消了音符拖动，已恢复原位置。", "success");
+  }
+
+  // 钢琴卷帘空白处 pointerdown + 拖动 = 创建新音符。
+  function beginNoteCreate(event) {
+    if (!state.analysis || event.button !== 0) return;
+    // 只在 grid 本体或 canvas（透明区域）响应，避免点音符也触发
+    if (event.target !== elements.pianoRollGrid && event.target !== elements.pianoRollCanvas) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startTime = snapTime(timeFromPianoPointer(event), event.altKey);
+    const pitch = pitchFromPianoPointer(event);
+    state.noteDrag = {
+      noteId: null,
+      mode: "create",
+      startClientX: event.clientX,
+      startTime,
+      startPitch: pitch,
+      currentEnd: startTime,
+      beganEdit: false,
+    };
+    document.addEventListener("pointermove", moveNoteCreate, true);
+    document.addEventListener("pointerup", endNoteCreate, true);
+    document.addEventListener("pointercancel", cancelNoteCreate, true);
+  }
+
+  function moveNoteCreate(event) {
+    if (!state.noteDrag || state.noteDrag.mode !== "create") return;
+    event.preventDefault();
+    const endTime = snapTime(timeFromPianoPointer(event), event.altKey);
+    state.noteDrag.currentEnd = endTime;
+    const existing = document.getElementById("piano-roll-note-preview");
+    if (existing) existing.remove();
+    const preview = document.createElement("div");
+    preview.id = "piano-roll-note-preview";
+    preview.className = "piano-roll-note preview";
+    const startSec = Math.min(state.noteDrag.startTime, endTime);
+    const endSec = Math.max(state.noteDrag.startTime, endTime);
+    preview.style.left = percentAt(startSec);
+    preview.style.width = percentAt(Math.max(0, endSec - startSec));
+    preview.style.top = `${(PIANO_ROLL_MAX_PITCH - state.noteDrag.startPitch) * PIANO_ROLL_ROW_HEIGHT}px`;
+    preview.style.height = `${PIANO_ROLL_ROW_HEIGHT - 1}px`;
+    elements.pianoRollGrid.appendChild(preview);
+  }
+
+  function endNoteCreate(event) {
+    if (!state.noteDrag || state.noteDrag.mode !== "create") return;
+    event.preventDefault();
+    const drag = state.noteDrag;
+    state.noteDrag = null;
+    document.removeEventListener("pointermove", moveNoteCreate, true);
+    document.removeEventListener("pointerup", endNoteCreate, true);
+    document.removeEventListener("pointercancel", cancelNoteCreate, true);
+    const preview = document.getElementById("piano-roll-note-preview");
+    if (preview) preview.remove();
+    const startSec = Math.min(drag.startTime, drag.currentEnd);
+    const endSec = Math.max(drag.startTime, drag.currentEnd);
+    if (endSec - startSec < 0.02) {
+      setStatus("音符太短，未创建。", "error");
+      return;
+    }
+    editGraph.begin("新建音符");
+    const note = createNote(state.pianoRollStemId, secondsToSample(startSec), secondsToSample(endSec), drag.startPitch);
+    if (note) {
+      state.selectedNoteId = note.id;
+      state.pianoRollMergeCandidateId = null;
+      renderPianoRoll();
+      updatePianoRollToolButtons();
+      setStatus(`已创建音符 ${note.id}：${midiToNoteName(note.pitch)} · ${startSec.toFixed(3)}–${endSec.toFixed(3)} 秒。`, "success");
+    }
+  }
+
+  function cancelNoteCreate() {
+    if (!state.noteDrag || state.noteDrag.mode !== "create") return;
+    state.noteDrag = null;
+    document.removeEventListener("pointermove", moveNoteCreate, true);
+    document.removeEventListener("pointerup", endNoteCreate, true);
+    document.removeEventListener("pointercancel", cancelNoteCreate, true);
+    const preview = document.getElementById("piano-roll-note-preview");
+    if (preview) preview.remove();
+  }
+
+  function timeFromPianoPointer(event) {
+    const rect = elements.pianoRollContent.getBoundingClientRect();
+    return clamp((event.clientX - rect.left) / Math.max(1, rect.width) * state.duration, 0, state.duration);
+  }
+
+  function pitchFromPianoPointer(event) {
+    const rect = elements.pianoRollContent.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    const rowIndex = Math.floor(y / PIANO_ROLL_ROW_HEIGHT);
+    const pitch = PIANO_ROLL_MAX_PITCH - rowIndex;
+    return clamp(pitch, PIANO_ROLL_MIN_PITCH, PIANO_ROLL_MAX_PITCH);
+  }
+
   function renderAll() {
     if (!state.analysis) return;
     setTimelineGeometry();
@@ -1382,6 +1901,8 @@
     renderLayerVisibility();
     renderStemMixer();
     applyStemMix();
+    renderPianoRoll();
+    updatePianoRollToolButtons();
     updateTransport();
   }
 
@@ -1405,6 +1926,19 @@
       elements.playhead.hidden = true;
     }
     elements.playButton.textContent = elements.audio.paused ? "播放" : "暂停";
+    // 同步钢琴卷帘播放头：renderPianoRoll 重建 grid 时会创建初始 playhead div，
+    // 这里只更新它的 left，避免每帧重建 DOM。
+    if (elements.pianoRollGrid) {
+      const pianoPlayhead = elements.pianoRollGrid.querySelector(".piano-roll-playhead");
+      if (pianoPlayhead) {
+        if (state.audioUrl && state.analysis) {
+          pianoPlayhead.style.left = percentAt(current);
+          pianoPlayhead.style.display = "";
+        } else {
+          pianoPlayhead.style.display = "none";
+        }
+      }
+    }
   }
 
   // 自动滚动策略：
@@ -1910,6 +2444,17 @@
           pan: track.pan,
           source: track.source,
         })),
+        // 音符候选（P1.2 轮 2 起）随项目持久化；引用 anchor 与 stem。
+        notes: state.notes.map(note => ({
+          id: note.id,
+          stem_id: note.stemId,
+          start_anchor_id: note.startAnchorId,
+          end_anchor_id: note.endAnchorId,
+          pitch: note.pitch,
+          velocity: note.velocity,
+          confidence: note.confidence,
+          source: note.source,
+        })),
         preferences: { snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics },
       },
     };
@@ -2047,6 +2592,41 @@
     state.stemTracks = loadedStemTracks.some(track => track.id === "master")
       ? loadedStemTracks
       : defaultStemTracks();
+
+    // 加载音符候选（P1.2 轮 2 起）。0.2.0 早期项目可能没有 notes 字段；这种情况视为没有音符。
+    const rawNotes = Array.isArray(editing.notes) ? editing.notes : [];
+    const validStemIdsForNotes = new Set(state.stemTracks.map(track => track.id));
+    const seenNoteIds = new Set();
+    let maximumNoteNumber = 0;
+    const notes = rawNotes.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`音符 ${index + 1} 无效。`);
+      const id = String(entry.id || `note-${index + 1}`);
+      if (seenNoteIds.has(id)) throw new Error(`音符 ID 重复：${id}。`);
+      seenNoteIds.add(id);
+      const startAnchorId = String(entry.start_anchor_id || "");
+      const endAnchorId = String(entry.end_anchor_id || "");
+      if (!state.anchors.has(startAnchorId) || !state.anchors.has(endAnchorId)) {
+        throw new Error(`音符 ${id} 引用了不存在的 anchor。`);
+      }
+      if (startAnchorId === endAnchorId) throw new Error(`音符 ${id} 的起止 anchor 不能相同。`);
+      const stemId = validStemIdsForNotes.has(entry.stem_id) ? entry.stem_id : "master";
+      const match = /^note-(\d+)$/.exec(id);
+      if (match) maximumNoteNumber = Math.max(maximumNoteNumber, Number(match[1]));
+      return {
+        id,
+        stemId,
+        startAnchorId,
+        endAnchorId,
+        pitch: clamp(Math.round(finiteNumber(entry.pitch, 60)), PIANO_ROLL_MIN_PITCH, PIANO_ROLL_MAX_PITCH),
+        velocity: clamp(finiteNumber(entry.velocity, 0.8), 0, 1),
+        confidence: clamp(finiteNumber(entry.confidence, 0), 0, 1),
+        source: ["manual", "transcription", "generation"].includes(entry.source) ? entry.source : "manual",
+      };
+    });
+    state.notes = notes;
+    state.nextNoteId = Math.max(1, maximumNoteNumber + 1);
+    state.selectedNoteId = null;
+    state.pianoRollMergeCandidateId = null;
   }
 
   // 把 0.1.0 项目的秒数边界迁移到 0.2.0 的 anchor 表。
@@ -2080,6 +2660,13 @@
     state.lockedFields = new Set();
     // 0.1.0 项目没有 stem_tracks 字段；迁移时回退到默认 stem 集。
     state.stemTracks = defaultStemTracks();
+    // 0.1.0 项目没有 notes 字段；迁移时清空音符候选。
+    state.notes = [];
+    state.nextNoteId = 1;
+    state.selectedNoteId = null;
+    state.pianoRollMergeCandidateId = null;
+    state.pianoRollStemId = "master";
+    if (elements.pianoRollStemSelect) elements.pianoRollStemSelect.value = "master";
 
     let previousEndAnchorId = null;
     sortedLegacy.forEach((legacy, index) => {
@@ -2480,6 +3067,40 @@
     });
   }
 
+  // 钢琴卷帘事件绑定：目标 stem 选择、拆分/合并/删除按钮、空白处创建音符。
+  if (elements.pianoRollStemSelect) {
+    elements.pianoRollStemSelect.addEventListener("change", event => {
+      state.pianoRollStemId = event.target.value;
+      setStatus(`钢琴卷帘目标 stem 已切换为：${state.pianoRollStemId}。`, "success");
+    });
+  }
+  if (elements.splitNoteButton) elements.splitNoteButton.addEventListener("click", splitSelectedNote);
+  if (elements.mergeNoteButton) elements.mergeNoteButton.addEventListener("click", mergeSelectedNotes);
+  if (elements.deleteNoteButton) elements.deleteNoteButton.addEventListener("click", () => {
+    if (state.selectedNoteId) deleteNote(state.selectedNoteId);
+  });
+  if (elements.pianoRollGrid) {
+    elements.pianoRollGrid.addEventListener("pointerdown", beginNoteCreate);
+  }
+  // 钢琴卷帘也响应 Ctrl/Cmd + 滚轮缩放（与时间轴同步）。
+  if (elements.pianoRollScroll) {
+    elements.pianoRollScroll.addEventListener("wheel", event => {
+      if (!state.analysis || !(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      const delta = -Math.sign(event.deltaY) * 4;
+      const minZoom = Number(elements.zoomRange.min);
+      const maxZoom = Number(elements.zoomRange.max);
+      const newZoom = clamp(state.zoom + delta, minZoom, maxZoom);
+      if (newZoom === state.zoom) return;
+      state.zoom = newZoom;
+      elements.zoomRange.value = String(state.zoom);
+      renderAll();
+    }, { passive: false });
+  }
+  // Esc 取消钢琴卷帘拖动/创建。
+  // 删除键删除选中音符（在非文本输入区域）。
+  // 这些快捷键在文档级 keydown 中统一处理，避免重复绑定。
+
   elements.zoomRange.addEventListener("input", event => {
     if (!state.analysis) {
       state.zoom = Number(event.target.value);
@@ -2573,8 +3194,21 @@
         setStatus("已取消框选。", "success");
       } else if (state.lyricDrag) {
         cancelLyricDrag();
+      } else if (state.noteDrag) {
+        if (state.noteDrag.mode === "create") cancelNoteCreate();
+        else cancelNoteDrag();
       }
       return;
+    }
+    // Delete / Backspace 删除选中音符（非文本输入区域）
+    if ((event.key === "Delete" || event.key === "Backspace") && state.selectedNoteId) {
+      const target = event.target;
+      const editingText = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable;
+      if (!editingText) {
+        event.preventDefault();
+        deleteNote(state.selectedNoteId);
+        return;
+      }
     }
     if (event.code !== "Space" || event.repeat || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target;

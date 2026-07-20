@@ -99,6 +99,36 @@
         <p class="stem-mixer-footnote">占位 stem 不影响当前试听；导入项目后混音参数会自动恢复。独奏模式下，未独奏的轨道自动静音。</p>
       </section>
 
+      <section class="piano-roll-card" aria-labelledby="piano-roll-title">
+        <header class="piano-roll-header">
+          <div>
+            <p class="eyebrow">音符编辑 · P1.2</p>
+            <h2 id="piano-roll-title">4. 钢琴卷帘与音符候选</h2>
+            <p class="subtitle">在时间轴上创建、移动、拉伸、拆分和合并音符候选；与歌词和休止共享 sample + anchor 时间模型。第一版没有真实转录后端，所有音符都是用户手工创建。</p>
+          </div>
+          <div class="piano-roll-tools">
+            <label class="compact-control" for="piano-roll-stem-select">目标 stem
+              <select id="piano-roll-stem-select">
+                <option value="master">伴奏总览</option>
+                <option value="drums">鼓组</option>
+                <option value="bass">贝斯</option>
+                <option value="other">其他乐器</option>
+              </select>
+            </label>
+            <button id="split-note-button" type="button" disabled title="把选中音符从中点一分为二">拆分音符</button>
+            <button id="merge-note-button" type="button" disabled title="合并选中的两个相邻同音高音符">合并音符</button>
+            <button id="delete-note-button" type="button" class="danger" disabled title="删除选中音符（快捷键：Delete）">删除音符</button>
+          </div>
+        </header>
+        <div id="piano-roll-scroll" class="piano-roll-scroll">
+          <div id="piano-roll-content" class="piano-roll-content">
+            <canvas id="piano-roll-canvas"></canvas>
+            <div id="piano-roll-grid" class="piano-roll-grid" role="group" aria-label="钢琴卷帘音符编辑区"></div>
+          </div>
+        </div>
+        <p class="piano-roll-footnote">在空白区域拖出新音符；点击音符选中并编辑；拖动音符移动；拖动音符左右边缘拉伸；Shift + 点击第二个音符设为合并候选；Delete 删除选中音符；Esc 取消当前拖动。</p>
+      </section>
+
       <div class="timeline-layout">
         <div class="timeline-card">
           <div id="timeline-scroll" class="timeline-scroll">
