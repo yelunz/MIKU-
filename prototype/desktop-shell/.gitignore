@@ -7,6 +7,13 @@ dist/
 # electron-builder 资源目录（图标等）暂未提供，空目录不提交。
 build-resources/
 
+# web-workbench 副本：打包时由本地 junction/复制生成，不入库（源在 ../web-workbench）。
+web-workbench/
+
+# Electron 二进制缓存（junction 重定向到本目录）。
+.electron-cache/
+.electron-builder-cache/
+
 # 本地 npm 调试日志。
 npm-debug.log*
 yarn-debug.log*

@@ -113,9 +113,15 @@
 - `python -m unittest tests.test_audio_analysis -v`：4 项通过（未回归）。
 - 共 41 项测试通过。
 - `npm install`：344 个包安装成功（npm info ok）。
-- Electron 二进制下载：通过 `node node_modules/electron/install.js` 手动触发。
-- `npm start` 启动验证：未在自动化中执行（需要桌面环境），由用户首次测试时执行。
-- `npm run dist:win` 打包验证：见本轮日志末尾 Git 状态前的执行结果记录。
+- Electron 二进制下载：通过 `node node_modules/electron/install.js` + ELECTRON_MIRROR=npmmirror.com 加速；沙盒阻止写入 `AppData\Local\electron\Cache`，通过 junction 重定向到项目内 `.electron-cache/` 解决。
+- `npm run dist:win` 打包成功：
+  - 首次失败：electron-builder 不允许 `../web-workbench/` 路径（asar 只含 main.js/package.json/preload.js）。
+  - 解决：在 desktop-shell 本地创建 web-workbench 副本（.gitignore 排除），files 字段用 `web-workbench/` 路径；main.js 加载路径改为 `path.join(__dirname, "web-workbench", "index.html")`。
+  - 第二次失败：沙盒阻止写入 `AppData\Local\electron-builder`（winCodeSign 工具下载），通过 junction 重定向到 `.electron-builder-cache/` + `signAndEditExecutable: false` + `CSC_IDENTITY_AUTO_DISCOVERY=false` 跳过签名解决。
+  - 最终产物：`dist/Miku-Workbench-0.3.0-win-x64.exe`（101 MB NSIS 安装包）+ `dist/win-unpacked/`（解压目录，可直接运行）。
+  - asar 内容验证：`\main.js` `\package.json` `\preload.js` `\web-workbench\{index.html,styles.css,app.js,desktop-bridge.js,README.md}` 全部打入。
+  - extraFiles 验证：`win-unpacked/fixtures/basic-c-major-120-v1.{analysis.json,wav}` 已复制。
+- 启动验证：`dist/win-unpacked/Miku-Workbench.exe` 启动成功，4 个进程（主+渲染+GPU+辅助），内存合计约 320 MB，窗口标题"Miku 歌姬解放计划 · 音频工作台原型"正确显示，稳定运行 5 秒无崩溃。
 
 ## 决定与理由
 
@@ -130,16 +136,17 @@
 
 ## 未决问题 / 下一步
 
-- Electron 二进制下载：本轮在自动化中通过 `node node_modules/electron/install.js` 手动触发；若网络环境阻止 GitHub releases 下载，需要配置镜像（`ELECTRON_MIRROR` 环境变量）。
-- `npm start` 真实启动验证：需要桌面环境，由用户首次测试时执行。
-- `npm run dist:win` 打包验证：electron-builder 会下载 NSIS 与 winCodeSign 工具，可能在沙盒环境中失败；若失败需要用户在本地执行。
+- Electron 二进制下载加速：本轮通过 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 加速；用户在本地打包时也建议设置此环境变量，否则从 GitHub 下载可能很慢或失败。
+- 沙盒缓存目录 junction：本轮通过 `AppData\Local\electron\Cache` 与 `AppData\Local\electron-builder` 两个 junction 重定向到项目内目录解决沙盒写入限制；用户在本地打包时不需要这些 junction，可直接写入 AppData。
+- 代码签名：本轮禁用签名（`signAndEditExecutable: false` + `CSC_IDENTITY_AUTO_DISCOVERY=false`），安装时 Windows SmartScreen 会提示"未知发布者"。P1 末尾或 P5 阶段申请代码签名证书后启用。
+- 应用图标：当前使用 Electron 默认图标，P1 末尾补充品牌图标（`build-resources/icon.ico` / `icon.icns` / `icon.png`）。
 - macOS 与 Linux 的 electron-builder target 待添加（`dmg` + `arm64` / `AppImage` + `x64`）。
 - Python 分析进程接入（P1.3）：通过 `child_process.spawn` 启动打包后的 Python，进度通过 IPC 流式回传。
-- 应用图标：当前使用 Electron 默认图标，P1 末尾补充品牌图标（`build-resources/icon.ico` / `icon.icns` / `icon.png`）。
 - 真实浏览器回归（next_actions 第一项）：P1.1 + P1.2 全部交互在浏览器中的真实回归测试。
+- 用户首次测试：交付 `dist/Miku-Workbench-0.3.0-win-x64.exe`（或 `dist/win-unpacked/Miku-Workbench.exe` 免安装版）给用户，验证导入夹具、播放、歌词、钢琴卷帘、stem 混音器、trim/fade、A/B 试听、撤销/重做、项目保存/加载等全流程。
 
 ## Git 状态
 
 - 分支：`main`，上游为 `origin/main`。
-- 本日志创建时，本轮修改尚待最终测试、提交和推送。
-- 上一轮（014）的提交 f53ceb5 已固化本地，因 GitHub 网络连接重置暂未推送，本轮一并推送。
+- 上一轮（014）的提交 f53ceb5 与本轮（015）的提交 7b172bc 已推送至 GitHub（18fc429..7b172bc main -> main）。
+- 本轮打包配置微调（web-workbench 副本路径、signAndEditExecutable: false、.gitignore 排除 web-workbench/ 与缓存目录）与日志更新待提交。

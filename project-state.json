@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-21T02:30:00+08:00",
+  "last_updated": "2026-07-21T03:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -138,11 +138,11 @@
         ]
       },
       "build_targets": {
-        "windows": "nsis-x64-pending-validation",
+        "windows": "nsis-x64-built-dist-miku-workbench-0.3.0-win-x64.exe-101mb-smoke-startup-ok",
         "macos": "not-yet-configured",
         "linux": "not-yet-configured"
       },
-      "status": "minimum-shell-with-static-tests-passing-packaging-pending"
+      "status": "windows-x64-nsis-package-built-and-smoke-startup-verified"
     }
   ],
   "desktop_stack_validation": {
@@ -225,8 +225,7 @@
   ],
   "next_actions": [
     "run-p1.1-and-p1.2-r1-r2-r3-r4-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-nondestructive-mix-and-project-roundtrip",
-    "validate-electron-desktop-shell-startup-on-windows-and-run-npm-start-smoke-test",
-    "package-first-runnable-software-for-windows-x64-via-electron-builder-nsis-and-deliver-for-testing",
+    "deliver-miku-workbench-0.3.0-win-x64-installer-to-user-for-first-end-to-end-testing",
     "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
     "connect-desktop-bridge-to-packaged-python-analysis-process",
     "run-packaged-workbench-validation-on-windows-macos-linux",

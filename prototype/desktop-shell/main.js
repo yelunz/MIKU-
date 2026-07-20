@@ -19,10 +19,10 @@ const isDev = process.argv.includes("--dev");
 let mainWindow = null;
 
 function resolveWorkbenchPath() {
-  // 打包后 extraFiles 会把 fixtures 复制到 resources/fixtures，
-  // 但 web-workbench 的静态资源由 electron-builder files 字段直接打入 asar。
-  // 两种情况下 index.html 都在 resources/app/prototype/web-workbench/index.html。
-  return path.join(__dirname, "..", "web-workbench", "index.html");
+  // 开发模式：__dirname 是 prototype/desktop-shell/，web-workbench 是本地 junction。
+  // 打包后：__dirname 是 resources/app/，web-workbench 已通过 files 字段打入 asar 同级。
+  // 两种情况下 path.join(__dirname, "web-workbench", "index.html") 都有效。
+  return path.join(__dirname, "web-workbench", "index.html");
 }
 
 function createWindow() {

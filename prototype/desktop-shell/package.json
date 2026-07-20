@@ -28,11 +28,11 @@
     "files": [
       "main.js",
       "preload.js",
-      "../web-workbench/index.html",
-      "../web-workbench/styles.css",
-      "../web-workbench/app.js",
-      "../web-workbench/desktop-bridge.js",
-      "../web-workbench/README.md"
+      "web-workbench/index.html",
+      "web-workbench/styles.css",
+      "web-workbench/app.js",
+      "web-workbench/desktop-bridge.js",
+      "web-workbench/README.md"
     ],
     "extraFiles": [
       {
@@ -53,7 +53,9 @@
           ]
         }
       ],
-      "artifactName": "Miku-Workbench-${version}-win-x64.${ext}"
+      "artifactName": "Miku-Workbench-${version}-win-x64.${ext}",
+      "signAndEditExecutable": false,
+      "forceCodeSigning": false
     },
     "nsis": {
       "oneClick": false,

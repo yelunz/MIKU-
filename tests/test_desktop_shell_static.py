@@ -51,10 +51,11 @@ class DesktopShellStaticTests(unittest.TestCase):
     def test_package_json_build_includes_web_workbench_files(self) -> None:
         files = self.package_json["build"]["files"]
         # 必须把 web-workbench 的核心文件打入 asar
-        self.assertIn("../web-workbench/index.html", files)
-        self.assertIn("../web-workbench/styles.css", files)
-        self.assertIn("../web-workbench/app.js", files)
-        self.assertIn("../web-workbench/desktop-bridge.js", files)
+        # web-workbench 通过 junction 出现在 desktop-shell 本地目录
+        self.assertIn("web-workbench/index.html", files)
+        self.assertIn("web-workbench/styles.css", files)
+        self.assertIn("web-workbench/app.js", files)
+        self.assertIn("web-workbench/desktop-bridge.js", files)
 
     def test_package_json_build_win_target_is_nsis_x64(self) -> None:
         win = self.package_json["build"]["win"]
@@ -78,7 +79,7 @@ class DesktopShellStaticTests(unittest.TestCase):
         # preload 必须通过路径加载
         self.assertIn('path.join(__dirname, "preload.js")', self.main_js)
         # 必须加载 web-workbench/index.html，不能是远程 URL
-        self.assertIn('path.join(__dirname, "..", "web-workbench", "index.html")', self.main_js)
+        self.assertIn('path.join(__dirname, "web-workbench", "index.html")', self.main_js)
         self.assertNotIn("loadURL", self.main_js)
         # 外部链接必须用系统浏览器打开，不能在应用内导航
         self.assertIn("setWindowOpenHandler", self.main_js)
