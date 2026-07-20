@@ -2,9 +2,9 @@
   "schema_version": 1,
   "project_name": "Miku 歌姬解放计划",
   "working_title": true,
-  "phase": "p2-p3-complete-full-feature-prototype-v0.4.0-first-version",
+  "phase": "v0.5.0-ustx-0.7-yaml-rewrite-openutau-real-machine-verified",
   "status": "in-progress",
-  "last_updated": "2026-07-21T05:30:00+08:00",
+  "last_updated": "2026-07-21T06:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -144,11 +144,11 @@
         ]
       },
       "build_targets": {
-        "windows": "nsis-x64-built-dist-miku-workbench-0.4.0-win-x64.exe-101mb-asar-missing-web-workbench-pending-rebuild",
+        "windows": "nsis-x64-pending-rebuild-v0.5.0-user-cancelled-dist-command-twice-code-layer-complete",
         "macos": "not-yet-configured",
         "linux": "not-yet-configured"
       },
-      "status": "windows-x64-nsis-package-built-v0.4.0-asar-needs-rebuild-with-real-copy"
+      "status": "v0.5.0-code-layer-complete-ustx-0.7-yaml-openutau-0.1.565-real-machine-verified-nsis-rebuild-pending"
     }
   ],
   "desktop_stack_validation": {
@@ -236,16 +236,22 @@
     "tools/export_synthv_sidecar.py",
     "tools/synthv_helper_script_es5.js",
     "tools/synthv_sidecar_schema.md",
-    "tests/test_engine_adapters.py"
+    "tests/test_engine_adapters.py",
+    "tools/make_integration_fixture.py",
+    "fixtures/integration/integration-fixture.json",
+    "fixtures/integration/integration-fixture.ustx",
+    "fixtures/integration/integration-fixture.mid",
+    "fixtures/integration/integration-fixture-sidecar.json"
   ],
   "next_actions": [
-    "rebuild-miku-workbench-0.4.0-win-x64-nsis-with-real-copy-of-web-workbench-junction-not-recognized-by-electron-builder",
+    "rebuild-miku-workbench-0.5.0-win-x64-nsis-user-cancelled-dist-command-twice-in-sandbox-code-layer-complete-but-installer-not-yet-regenerated",
+    "openutau-content-layer-verification-open-integration-fixture-ustx-in-openutau-gui-and-visually-confirm-4-notes-4-lyrics-1-rest",
+    "synthv-1.9.0-import-midi-manually-file-import-midi-integration-fixture-mid-and-visually-confirm-4-notes-4-lyrics",
+    "synthv-1.9.0-helper-script-real-machine-run-paste-synthv-helper-script-es5-js-into-script-console-modify-sidecar-path-run-and-verify-syllable-reading-override-written-to-note-lyrics",
+    "openutau-macos-linux-three-platform-verification-windows-verified-need-macos-linux-devices",
+    "vocaloid6-6.13.0-real-machine-verification-user-not-provided-vocaloid6-install-pending-p3.5",
     "run-p2-r1-real-browser-regression-on-syllable-splitting-reading-override-vocal-preview-0.2.0-migration-0.1.0-migration-undo-redo-and-syllable-lock-preservation",
     "run-p1.1-and-p1.2-r1-r2-r3-r4-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-nondestructive-mix-and-project-roundtrip",
-    "deliver-miku-workbench-0.4.0-win-x64-installer-to-user-for-first-end-to-end-testing-after-asar-fix",
-    "validate-ustx-0.6-export-against-openutau-0.1.565-real-editor",
-    "validate-synthv-helper-script-against-synthesizer-v-studio-pro-1.9.0-real-editor",
-    "validate-midi-export-against-vocaloid6-6.13.0-full-standalone-real-editor",
     "extend-pinyin-table-from-unihan-and-kana-romaji-table-for-compound-readings",
     "begin-openutau-ustx-0.6-adapter-with-syllable-phoneme-data-structure",
     "enhance-vocal-preview-with-basic-pitch-transcription-and-formant-synthesis",

@@ -1,0 +1,199 @@
+{
+  "schema_version": "miku-workbench-project/0.3.0",
+  "source_audio": {
+    "sample_rate_hz": 48000,
+    "duration_seconds": 5.0,
+    "sha256": "integration-fixture-no-audio",
+    "filename": "integration-fixture.wav"
+  },
+  "analysis": {
+    "analysis": {
+      "analyzer": "manual-fixture",
+      "tempo": {
+        "candidates": [
+          {
+            "bpm": 120,
+            "first_beat_seconds": 0.0
+          }
+        ]
+      },
+      "key": {
+        "candidates": [
+          {
+            "label": "C major",
+            "confidence": 1.0
+          }
+        ]
+      }
+    }
+  },
+  "tempo_map": {
+    "sample_rate_hz": 48000,
+    "ppq": 960,
+    "bpm": 120,
+    "first_beat_seconds": 0.0,
+    "first_beat_sample": 0,
+    "first_beat_tick": 0
+  },
+  "anchors": [
+    {
+      "id": "anchor-1",
+      "sample": 0,
+      "tick": 0
+    },
+    {
+      "id": "anchor-2",
+      "sample": 24000,
+      "tick": 960
+    },
+    {
+      "id": "anchor-3",
+      "sample": 48000,
+      "tick": 1920
+    },
+    {
+      "id": "anchor-4",
+      "sample": 72000,
+      "tick": 2880
+    },
+    {
+      "id": "anchor-5",
+      "sample": 96000,
+      "tick": 3840
+    },
+    {
+      "id": "anchor-6",
+      "sample": 120000,
+      "tick": 4800
+    }
+  ],
+  "editing": {
+    "lyrics": [
+      {
+        "id": "lyric-1",
+        "start_anchor_id": "anchor-1",
+        "end_anchor_id": "anchor-3",
+        "language": "zh",
+        "text": "你好"
+      },
+      {
+        "id": "lyric-2",
+        "start_anchor_id": "anchor-4",
+        "end_anchor_id": "anchor-6",
+        "language": "zh",
+        "text": "世界"
+      }
+    ],
+    "rests": [
+      {
+        "id": "rest-1",
+        "start_anchor_id": "anchor-3",
+        "end_anchor_id": "anchor-4",
+        "kind": "rest"
+      }
+    ],
+    "notes": [
+      {
+        "id": "note-1",
+        "stem_id": "master",
+        "start_anchor_id": "anchor-1",
+        "end_anchor_id": "anchor-2",
+        "pitch": 60,
+        "velocity": 0.8,
+        "confidence": 1.0,
+        "source": "manual"
+      },
+      {
+        "id": "note-2",
+        "stem_id": "master",
+        "start_anchor_id": "anchor-2",
+        "end_anchor_id": "anchor-3",
+        "pitch": 62,
+        "velocity": 0.8,
+        "confidence": 1.0,
+        "source": "manual"
+      },
+      {
+        "id": "note-3",
+        "stem_id": "master",
+        "start_anchor_id": "anchor-4",
+        "end_anchor_id": "anchor-5",
+        "pitch": 64,
+        "velocity": 0.8,
+        "confidence": 1.0,
+        "source": "manual"
+      },
+      {
+        "id": "note-4",
+        "stem_id": "master",
+        "start_anchor_id": "anchor-5",
+        "end_anchor_id": "anchor-6",
+        "pitch": 65,
+        "velocity": 0.8,
+        "confidence": 1.0,
+        "source": "manual"
+      }
+    ],
+    "syllables": [
+      {
+        "id": "syllable-1",
+        "lyric_id": "lyric-1",
+        "index": 0,
+        "text": "你",
+        "default_reading": "ni",
+        "reading_override": "ni3",
+        "start_anchor_id": "anchor-1",
+        "end_anchor_id": "anchor-2"
+      },
+      {
+        "id": "syllable-2",
+        "lyric_id": "lyric-1",
+        "index": 1,
+        "text": "好",
+        "default_reading": "hao",
+        "reading_override": "",
+        "start_anchor_id": "anchor-2",
+        "end_anchor_id": "anchor-3"
+      },
+      {
+        "id": "syllable-3",
+        "lyric_id": "lyric-2",
+        "index": 0,
+        "text": "世",
+        "default_reading": "shi",
+        "reading_override": "",
+        "start_anchor_id": "anchor-4",
+        "end_anchor_id": "anchor-5"
+      },
+      {
+        "id": "syllable-4",
+        "lyric_id": "lyric-2",
+        "index": 1,
+        "text": "界",
+        "default_reading": "jie",
+        "reading_override": "",
+        "start_anchor_id": "anchor-5",
+        "end_anchor_id": "anchor-6"
+      }
+    ],
+    "stem_tracks": [
+      {
+        "id": "master",
+        "kind": "master",
+        "label": "伴奏总览",
+        "gain": 1.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "trim": {
+          "start_seconds": 0.0,
+          "end_seconds": 5.0
+        },
+        "fade": {
+          "in_seconds": 0.0,
+          "out_seconds": 0.0
+        }
+      }
+    ]
+  }
+}

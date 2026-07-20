@@ -1,0 +1,134 @@
+{
+  "schema_version": "miku-synthv-sidecar/0.1.0",
+  "source_project_schema": "miku-workbench-project/0.3.0",
+  "tempo": {
+    "bpm": 120.0,
+    "ppq": 960,
+    "first_beat_tick": 0,
+    "first_beat_sample": 0,
+    "sample_rate_hz": 48000
+  },
+  "time_signature": {
+    "beat_per_bar": 4,
+    "note_per_beat": 4
+  },
+  "stem_tracks": [
+    {
+      "id": "master",
+      "kind": "master",
+      "label": "伴奏总览",
+      "gain": 1.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "trim": {
+        "start_seconds": 0.0,
+        "end_seconds": 5.0
+      },
+      "fade": {
+        "in_seconds": 0.0,
+        "out_seconds": 0.0
+      }
+    }
+  ],
+  "notes": [
+    {
+      "id": "note-1",
+      "stem_id": "master",
+      "tick": 0,
+      "duration": 960,
+      "tone": 60,
+      "velocity": 0.8,
+      "confidence": 1.0,
+      "source": "manual",
+      "lyric_id": "",
+      "syllable_id": ""
+    },
+    {
+      "id": "note-2",
+      "stem_id": "master",
+      "tick": 960,
+      "duration": 960,
+      "tone": 62,
+      "velocity": 0.8,
+      "confidence": 1.0,
+      "source": "manual",
+      "lyric_id": "",
+      "syllable_id": ""
+    },
+    {
+      "id": "note-3",
+      "stem_id": "master",
+      "tick": 2880,
+      "duration": 960,
+      "tone": 64,
+      "velocity": 0.8,
+      "confidence": 1.0,
+      "source": "manual",
+      "lyric_id": "",
+      "syllable_id": ""
+    },
+    {
+      "id": "note-4",
+      "stem_id": "master",
+      "tick": 3840,
+      "duration": 960,
+      "tone": 65,
+      "velocity": 0.8,
+      "confidence": 1.0,
+      "source": "manual",
+      "lyric_id": "",
+      "syllable_id": ""
+    }
+  ],
+  "syllables": [
+    {
+      "id": "syllable-1",
+      "lyric_id": "lyric-1",
+      "index": 0,
+      "text": "你",
+      "default_reading": "ni",
+      "reading_override": "ni3"
+    },
+    {
+      "id": "syllable-2",
+      "lyric_id": "lyric-1",
+      "index": 1,
+      "text": "好",
+      "default_reading": "hao",
+      "reading_override": ""
+    },
+    {
+      "id": "syllable-3",
+      "lyric_id": "lyric-2",
+      "index": 0,
+      "text": "世",
+      "default_reading": "shi",
+      "reading_override": ""
+    },
+    {
+      "id": "syllable-4",
+      "lyric_id": "lyric-2",
+      "index": 1,
+      "text": "界",
+      "default_reading": "jie",
+      "reading_override": ""
+    }
+  ],
+  "rests": [
+    {
+      "id": "rest-1",
+      "tick": 1920,
+      "duration": 960,
+      "kind": "rest"
+    }
+  ],
+  "loss_report": {
+    "note_event.confidence": "Synthesizer V has no per-note confidence field; kept in sidecar only",
+    "note_event.source": "Synthesizer V has no origin field; kept in sidecar only",
+    "stem_tracks.trim_and_fade": "SynthV 1.9.0 has no scriptable trim/fade; mix params kept in sidecar",
+    "anchor.shared_boundary": "Shared anchor degrades to same-tick note off + note on after MIDI import",
+    "lyric.language": "Language is implied by phonemizer selection; not stored per-lyric in SynthV",
+    "chord_overrides": "Synthesizer V has no chord layer; kept in sidecar only"
+  }
+}
