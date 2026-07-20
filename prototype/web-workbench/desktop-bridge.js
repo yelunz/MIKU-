@@ -1,6 +1,12 @@
 "use strict";
 
+// 浏览器版桌面桥接：只在渲染器还没有 MikuDesktopBridge 时初始化。
+// 在 Electron 中，preload.js 通过 contextBridge.exposeInMainWorld 暴露一个
+// 只读的 MikuDesktopBridge，此时本脚本会跳过自初始化，让桌面能力生效。
+// 这样同一份 web-workbench 代码可以在浏览器和 Electron 中无修改运行。
 (() => {
+  if (typeof globalThis.MikuDesktopBridge !== "undefined") return;
+
   const objectUrls = new Set();
 
   globalThis.MikuDesktopBridge = Object.freeze({

@@ -1,0 +1,75 @@
+{
+  "name": "miku-workbench",
+  "version": "0.3.0",
+  "description": "Miku 歌姬解放计划 · 桌面音频工作台（P1.2 阶段最小 Electron 验证壳）",
+  "main": "main.js",
+  "author": "Miku 歌姬解放计划",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron . --dev",
+    "start:prod": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "dist:win:portable": "electron-builder --win portable --x64",
+    "lint": "node --check main.js && node --check preload.js"
+  },
+  "devDependencies": {
+    "electron": "^43.1.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.miku.workbench",
+    "productName": "Miku-Workbench",
+    "copyright": "Miku 歌姬解放计划",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../web-workbench/index.html",
+      "../web-workbench/styles.css",
+      "../web-workbench/app.js",
+      "../web-workbench/desktop-bridge.js",
+      "../web-workbench/README.md"
+    ],
+    "extraFiles": [
+      {
+        "from": "../../fixtures/.generated",
+        "to": "fixtures",
+        "filter": [
+          "basic-c-major-120-v1.analysis.json",
+          "basic-c-major-120-v1.wav"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Miku-Workbench-${version}-win-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Miku 歌姬工作台",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ]
+    },
+    "portable": {
+      "artifactName": "Miku-Workbench-${version}-win-x64-portable.${ext}"
+    }
+  }
+}

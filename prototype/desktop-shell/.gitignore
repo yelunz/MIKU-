@@ -1,0 +1,17 @@
+# Electron 与 electron-builder 依赖体积大，从仓库排除。
+node_modules/
+
+# 打包产物不应提交。
+dist/
+
+# electron-builder 资源目录（图标等）暂未提供，空目录不提交。
+build-resources/
+
+# 本地 npm 调试日志。
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 锁文件按团队约定处理；当前为单机验证，先不入库。
+package-lock.json
+yarn.lock

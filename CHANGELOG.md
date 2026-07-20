@@ -30,6 +30,7 @@
 - 新增钢琴卷帘与 NoteEvent 数据模型（P1.2 轮 2）：用户可在时间轴上手工创建、移动、拉伸、拆分和合并音符候选；音符引用 start/end anchor，与歌词/休止共享同一 anchor 表，相邻音符若边界对齐会自动复用 anchor；C2..C7 共 60 半音行高 14px；四种交互模式（move / stretch-start / stretch-end / create）统一在 noteDrag 状态机；source 字段区分 manual / transcription / generation，对应不同颜色；导入时严格校验 ID 唯一、anchor 引用、stem_id 集合、pitch / velocity / confidence 范围与 source 枚举；0.1.0 项目迁移时清空 notes。
 - 新增量化网格 + 附点 + 三连音 + Swing（P1.2 轮 3）：snap 网格扩展到 1/8 拍（直十六分）、1/3 拍（半拍三连音）和 1/6 拍（四分拍三连音）；附点 checkbox 把网格拉长 1.5 倍（三连音网格上不叠加）；Swing 滑块 0..0.7 把偶数细分网格的后半段向后推，三连音和整拍网格上不生效；钢琴卷帘 canvas 按当前 snap 网格绘制垂直线（swing 偏移的奇数点用浅色）；"量化"按钮把选中音符一次性对齐到当前网格；dotted_snap 与 swing_amount 随项目导出/导入一并持久化。
 - 新增非破坏混音参数 + A/B 试听切换（P1.2 轮 4）：每条 stem 轨新增 trim（裁切起止秒数）与 fade（淡入淡出秒数）参数；master stem 通过 Web Audio API `linearRampToValueAtTime` 真实构造淡入/淡出包络，trim 边界外自动静音并定位；A/B 试听切换（edited / original）让用户对比"应用非破坏参数"与"只保留 gain/pan/mute/solo"的差异，切换不记 undo；trim/fade 与 stem_preview_mode 随 EditGraph 快照、项目导出/导入一并持久化；占位 stem 也保存参数，等接入分离后端后自动复用；修复 0.2.0 项目此前不恢复 snap/dotted/swing 偏好的预存在 bug。
+- 新增 Electron 43.x 最小桌面验证壳（轮 015）：`prototype/desktop-shell/` 把零依赖 Web 工作台封装成可独立运行的桌面应用；主进程通过 `contextIsolation` + `nodeIntegration: false` + 白名单 IPC 处理器（原生文件对话框、文件读写、SHA-256、在资源管理器中显示）隔离渲染器；preload 通过 `contextBridge.exposeInMainWorld` 暴露只读 `MikuDesktopBridge`，`web-workbench/desktop-bridge.js` 顶部守卫检测已存在时跳过浏览器版自初始化，使同一份代码在浏览器与 Electron 中无修改运行；electron-builder 配置 NSIS x64 安装包与便携版，extraFiles 把测试夹具复制到安装目录；新增 15 项桌面壳静态测试。
 
 ### Changed
 

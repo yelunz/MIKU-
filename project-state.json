@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-21T01:30:00+08:00",
+  "last_updated": "2026-07-21T02:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -91,7 +91,7 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p1.2-r4-nondestructive-mix-and-preview-toggle",
+      "status": "runnable-interaction-prototype-p1.2-r5-electron-minimal-shell",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4-1-8-and-triplet",
@@ -111,9 +111,38 @@
         "stem-mixer-with-mute-solo-gain-pan-and-web-audio-api-on-master",
         "piano-roll-with-create-move-stretch-split-merge-note-events",
         "quantize-grid-with-dotted-1-8-triplet-and-swing",
-        "nondestructive-mix-trim-fade-with-edited-vs-original-preview-toggle"
+        "nondestructive-mix-trim-fade-with-edited-vs-original-preview-toggle",
+        "electron-minimal-shell-with-context-bridge-and-whitelist-ipc"
       ],
       "verified_environment": "windows-edge"
+    },
+    {
+      "id": "electron-desktop-shell",
+      "entrypoint": "prototype/desktop-shell/main.js",
+      "runtime": "electron-43.x",
+      "preload": "prototype/desktop-shell/preload.js",
+      "package_config": "prototype/desktop-shell/package.json",
+      "web_workbench": "prototype/web-workbench/index.html",
+      "bridge": "contextBridge-exposeInMainWorld-with-read-only-miku-desktop-bridge",
+      "security": {
+        "contextIsolation": true,
+        "nodeIntegration": false,
+        "sandbox": false,
+        "ipc_whitelist": [
+          "miku:openFileDialog",
+          "miku:saveFileDialog",
+          "miku:readFileAsArrayBuffer",
+          "miku:readFileAsText",
+          "miku:writeTextFile",
+          "miku:revealPathInExplorer"
+        ]
+      },
+      "build_targets": {
+        "windows": "nsis-x64-pending-validation",
+        "macos": "not-yet-configured",
+        "linux": "not-yet-configured"
+      },
+      "status": "minimum-shell-with-static-tests-passing-packaging-pending"
     }
   ],
   "desktop_stack_validation": {
@@ -186,12 +215,18 @@
     "prototype/web-workbench/README.md",
     "tests/test_web_workbench_static.py",
     "docs/DESKTOP_STACK_SPIKE.md",
-    "docs/MULTITRACK_COMPOSITION_DESIGN.md"
+    "docs/MULTITRACK_COMPOSITION_DESIGN.md",
+    "prototype/desktop-shell/package.json",
+    "prototype/desktop-shell/main.js",
+    "prototype/desktop-shell/preload.js",
+    "prototype/desktop-shell/.gitignore",
+    "prototype/desktop-shell/README.md",
+    "tests/test_desktop_shell_static.py"
   ],
   "next_actions": [
     "run-p1.1-and-p1.2-r1-r2-r3-r4-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-nondestructive-mix-and-project-roundtrip",
-    "wrap-stable-multitrack-workbench-in-minimal-electron-validation-shell",
-    "package-first-runnable-software-for-windows-x64-and-deliver-for-testing",
+    "validate-electron-desktop-shell-startup-on-windows-and-run-npm-start-smoke-test",
+    "package-first-runnable-software-for-windows-x64-via-electron-builder-nsis-and-deliver-for-testing",
     "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
     "connect-desktop-bridge-to-packaged-python-analysis-process",
     "run-packaged-workbench-validation-on-windows-macos-linux",
