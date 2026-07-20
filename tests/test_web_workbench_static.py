@@ -171,6 +171,55 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("PROJECT_SCHEMA_LEGACY", self.javascript)
         self.assertIn("已导入 0.1.0 项目并迁移到 0.2.0", self.javascript)
 
+    def test_edit_graph_undo_redo_is_present(self) -> None:
+        # EditGraph 第一版：撤销/重做栈、按钮、Ctrl+Z/Ctrl+Shift+Z 快捷键
+        self.assertIn("const editGraph = {", self.javascript)
+        self.assertIn("editGraph.undoStack", self.javascript)
+        self.assertIn("editGraph.redoStack", self.javascript)
+        self.assertIn("editGraph.begin(", self.javascript)
+        self.assertIn("editGraph.undo()", self.javascript)
+        self.assertIn("editGraph.redo()", self.javascript)
+        self.assertIn("canUndo()", self.javascript)
+        self.assertIn("canRedo()", self.javascript)
+        # 撤销/重做按钮必须存在于 HTML 与 JS 引用中
+        self.assertIn('id="undo-button"', self.html)
+        self.assertIn('id="redo-button"', self.html)
+        self.assertIn("undoButton", self.javascript)
+        self.assertIn("redoButton", self.javascript)
+        self.assertIn("updateUndoRedoButtons", self.javascript)
+        # Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 快捷键
+        self.assertIn('event.key === "z"', self.javascript)
+        self.assertIn('event.key === "y"', self.javascript)
+        # 在用户操作（新建歌词、删除歌词、新建休止、删除休止、和弦修正、共享边拖动）处记录撤销点
+        self.assertIn('editGraph.begin("新建歌词")', self.javascript)
+        self.assertIn('editGraph.begin("新建休止")', self.javascript)
+        self.assertIn("editGraph.begin(`删除歌词", self.javascript)
+        self.assertIn("editGraph.begin(`删除休止", self.javascript)
+        self.assertIn("editGraph.begin(`修正和弦", self.javascript)
+        self.assertIn('editGraph.begin("拖动共享边界")', self.javascript)
+        # 导入新项目时清空 undo/redo 栈
+        self.assertIn("editGraph.undoStack = []", self.javascript)
+        self.assertIn("editGraph.redoStack = []", self.javascript)
+
+    def test_lyric_block_drag_and_stretch_are_present(self) -> None:
+        # 歌词块整体拖动与边缘拉伸：用 pointerdown 区分点击编辑与拖动
+        self.assertIn("state.lyricDrag", self.javascript)
+        self.assertIn("beginLyricBlockDrag", self.javascript)
+        self.assertIn("moveLyricBlock", self.javascript)
+        self.assertIn("endLyricBlockDrag", self.javascript)
+        self.assertIn("cancelLyricBlockDrag", self.javascript)
+        # 三种模式：整体移动、拉伸起始、拉伸结束
+        self.assertIn('"stretch-start"', self.javascript)
+        self.assertIn('"stretch-end"', self.javascript)
+        self.assertIn('"move"', self.javascript)
+        # 共享 anchor 在拖动/拉伸前会被克隆，避免影响邻居
+        self.assertIn("detachAnchorIfShared", self.javascript)
+        # 拖动阈值：4 像素以内视为点击
+        self.assertIn("state.lyricDrag.startClientX", self.javascript)
+        # Esc 取消歌词块拖动
+        self.assertIn("state.lyricDrag", self.javascript)
+        self.assertIn("cancelLyricBlockDrag()", self.javascript)
+
 
 if __name__ == "__main__":
     unittest.main()

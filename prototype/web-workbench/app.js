@@ -39,7 +39,102 @@
     nextLyricId: 1,
     nextRestId: 1,
     nextAnchorId: 1,
+    // 歌词块整体拖动/拉伸状态。拖动阈值超过 4 像素才进入拖动模式，
+    // 否则保留原点击行为（进入编辑器）。
+    lyricDrag: null,
   };
+
+  // ---- EditGraph：撤销/重做栈（第一版）-----------------------------------------
+  // 设计原则：
+  // - 每次会改变 anchors / lyrics / rests / chordOverrides / selection 的"用户操作"
+  //   在执行前调用 editGraph.begin(label) 保存当前状态快照。
+  // - 撤销 = 把当前状态推入 redo 栈，弹出 undo 栈顶恢复。
+  // - 新操作清空 redo 栈（与常见编辑器一致）。
+  // - 快照限制 50 条防止内存爆炸；超出后丢弃最旧。
+  // - 快照只保存可编辑数据，不保存 audioUrl / analysis 等不可变状态。
+  const editGraph = {
+    undoStack: [],
+    redoStack: [],
+    maxSize: 50,
+
+    snapshot() {
+      return {
+        anchors: Array.from(state.anchors.values()).map(anchor => ({ ...anchor })),
+        lyrics: state.lyrics.map(region => ({ ...region })),
+        rests: state.rests.map(rest => ({ ...rest })),
+        chordOverrides: JSON.parse(JSON.stringify(state.chordOverrides)),
+        selection: { ...state.selection },
+        selectedLyricId: state.selectedLyricId,
+        selectedRestId: state.selectedRestId,
+        nextLyricId: state.nextLyricId,
+        nextRestId: state.nextRestId,
+        nextAnchorId: state.nextAnchorId,
+      };
+    },
+
+    restore(snapshot) {
+      state.anchors = new Map(snapshot.anchors.map(anchor => [anchor.id, { ...anchor }]));
+      state.lyrics = snapshot.lyrics.map(region => ({ ...region }));
+      state.rests = snapshot.rests.map(rest => ({ ...rest }));
+      state.chordOverrides = JSON.parse(JSON.stringify(snapshot.chordOverrides));
+      state.selection = { ...snapshot.selection };
+      state.selectedLyricId = snapshot.selectedLyricId;
+      state.selectedRestId = snapshot.selectedRestId;
+      state.nextLyricId = snapshot.nextLyricId;
+      state.nextRestId = snapshot.nextRestId;
+      state.nextAnchorId = snapshot.nextAnchorId;
+      // 恢复后清除选中编辑器视图，避免引用已不存在的 region
+      elements.lyricText.value = "";
+      elements.lyricLanguage.value = "zh";
+      elements.cancelLyricEditButton.hidden = true;
+      elements.deleteLyricButton.hidden = true;
+      elements.chordInspector.hidden = true;
+      elements.restInspector.hidden = true;
+      elements.selectionStart.value = state.selection.start.toFixed(3);
+      elements.selectionEnd.value = state.selection.end.toFixed(3);
+    },
+
+    begin(label) {
+      this.undoStack.push({ label, snapshot: this.snapshot() });
+      if (this.undoStack.length > this.maxSize) this.undoStack.shift();
+      this.redoStack = [];
+      updateUndoRedoButtons();
+    },
+
+    undo() {
+      if (!this.undoStack.length) return false;
+      const entry = this.undoStack.pop();
+      this.redoStack.push({ label: entry.label, snapshot: this.snapshot() });
+      this.restore(entry.snapshot);
+      updateUndoRedoButtons();
+      setStatus(`已撤销：${entry.label}。`, "success");
+      return true;
+    },
+
+    redo() {
+      if (!this.redoStack.length) return false;
+      const entry = this.redoStack.pop();
+      this.undoStack.push({ label: entry.label, snapshot: this.snapshot() });
+      this.restore(entry.snapshot);
+      updateUndoRedoButtons();
+      setStatus(`已重做：${entry.label}。`, "success");
+      return true;
+    },
+
+    canUndo() { return this.undoStack.length > 0; },
+    canRedo() { return this.redoStack.length > 0; },
+  };
+
+  function updateUndoRedoButtons() {
+    if (elements.undoButton) {
+      elements.undoButton.disabled = !editGraph.canUndo();
+      elements.undoButton.title = editGraph.canUndo() ? `撤销（Ctrl+Z）· ${editGraph.undoStack.length} 步可回退` : "无可撤销操作";
+    }
+    if (elements.redoButton) {
+      elements.redoButton.disabled = !editGraph.canRedo();
+      elements.redoButton.title = editGraph.canRedo() ? `重做（Ctrl+Shift+Z）· ${editGraph.redoStack.length} 步可重做` : "无可重做操作";
+    }
+  }
 
   const byId = id => document.getElementById(id);
   const elements = {
@@ -88,6 +183,8 @@
     chordLabel: byId("chord-label"),
     saveChordButton: byId("save-chord-button"),
     restoreChordButton: byId("restore-chord-button"),
+    undoButton: byId("undo-button"),
+    redoButton: byId("redo-button"),
     exactData: byId("exact-data"),
   };
 
@@ -352,6 +449,10 @@
     state.nextLyricId = 1;
     state.nextRestId = 1;
     state.nextAnchorId = 1;
+    // 清空 undo/redo 栈：新项目里旧历史无意义。
+    editGraph.undoStack = [];
+    editGraph.redoStack = [];
+    updateUndoRedoButtons();
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
@@ -539,11 +640,12 @@
       appendUnassigned(sampleToSeconds(cursorSample), startSeconds);
       if (kind === "lyric") {
         const language = region.language === "ja" ? "日" : "中";
-        const block = makeBlock("lyric-block", `${language} · ${region.text}`, startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 点击编辑`);
+        const block = makeBlock("lyric-block", `${language} · ${region.text}`, startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 点击编辑 · 拖动移动 · 边缘拉伸`);
         block.style.removeProperty("width");
         block.style.right = percentAt(state.duration - endSeconds);
         if (state.selectedLyricId === region.id) block.classList.add("selected");
-        block.addEventListener("click", () => editLyric(region.id));
+        // 用 pointerdown 替代 click，以便区分"点击编辑"和"拖动移动/拉伸"。
+        block.addEventListener("pointerdown", event => beginLyricBlockDrag(event, region));
         elements.lyricsLane.appendChild(block);
       } else {
         const block = makeBlock("rest-block explicit-rest", "休止", startSeconds, endSeconds, `${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · 显式休止；点击编辑`);
@@ -558,6 +660,158 @@
     appendUnassigned(sampleToSeconds(cursorSample), state.duration);
 
     renderSharedEdges();
+  }
+
+  // ---- 歌词块整体拖动与拉伸 ----------------------------------------------------
+  // 行为：
+  //   - pointerdown 在块左右 6 px 内 → stretch-start / stretch-end 模式，只移动一端 anchor
+  //   - pointerdown 在块中间 → move 模式，整体移动 start/end anchor
+  //   - 移动距离 < 4 px → 视为点击，进入编辑模式（保留原 editLyric 行为）
+  //   - 若被移动的 anchor 与相邻 region 共享，先克隆一个新 anchor 给当前 region，
+  //     保持邻居不动；这会让连续歌词区在单独拖动后产生小缝（用户预期）。
+  //   - 不能跨越相邻 region 的另一端 anchor；吸附、Alt 绕过、Esc 取消、方向键微调都支持。
+  function beginLyricBlockDrag(event, region) {
+    if (!state.analysis || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const offsetLeft = event.clientX - rect.left;
+    const offsetRight = rect.right - event.clientX;
+    const edgeTolerance = 8;
+    let mode;
+    if (offsetLeft <= edgeTolerance) mode = "stretch-start";
+    else if (offsetRight <= edgeTolerance) mode = "stretch-end";
+    else mode = "move";
+    state.lyricDrag = {
+      regionId: region.id,
+      mode,
+      startClientX: event.clientX,
+      startStartSample: anchorStartSample(region),
+      startEndSample: anchorEndSample(region),
+      originalStartAnchorId: region.startAnchorId,
+      originalEndAnchorId: region.endAnchorId,
+      beganEdit: false,
+      detachedStart: false,
+      detachedEnd: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.addEventListener("pointermove", moveLyricBlock, true);
+    document.addEventListener("pointerup", endLyricBlockDrag, true);
+    document.addEventListener("pointercancel", cancelLyricBlockDrag, true);
+  }
+
+  // 如果 anchor 与其他 region 共享，克隆一个新 anchor 给当前 region，
+  // 把当前 region 的对应 anchorId 切换到新克隆的 anchor，保持邻居不动。
+  function detachAnchorIfShared(region, which) {
+    const anchorId = which === "start" ? region.startAnchorId : region.endAnchorId;
+    const shared = [...state.lyrics, ...state.rests].some(other => other.id !== region.id && (other.startAnchorId === anchorId || other.endAnchorId === anchorId));
+    if (!shared) return false;
+    const original = state.anchors.get(anchorId);
+    const cloned = createAnchorAtSample(original.sample);
+    if (which === "start") {
+      region.startAnchorId = cloned.id;
+      state.lyricDrag.detachedStart = true;
+    } else {
+      region.endAnchorId = cloned.id;
+      state.lyricDrag.detachedEnd = true;
+    }
+    return true;
+  }
+
+  function moveLyricBlock(event) {
+    if (!state.lyricDrag) return;
+    if (Math.abs(event.clientX - state.lyricDrag.startClientX) < 4 && !state.lyricDrag.beganEdit) return;
+    const region = state.lyrics.find(item => item.id === state.lyricDrag.regionId);
+    if (!region) return;
+    if (!state.lyricDrag.beganEdit) {
+      editGraph.begin(state.lyricDrag.mode === "move" ? `拖动歌词 ${region.id}` : `拉伸歌词 ${region.id}`);
+      state.lyricDrag.beganEdit = true;
+      // 进入拖动模式前，按需克隆共享 anchor，使当前 region 独立移动。
+      if (state.lyricDrag.mode === "move" || state.lyricDrag.mode === "stretch-start") {
+        detachAnchorIfShared(region, "start");
+      }
+      if (state.lyricDrag.mode === "move" || state.lyricDrag.mode === "stretch-end") {
+        detachAnchorIfShared(region, "end");
+      }
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const pointerTime = snapTime(timeFromPointer(event), event.altKey);
+    const pointerSample = secondsToSample(pointerTime);
+    const minSample = 0;
+    const maxSample = Math.round(state.duration * state.sampleRateHz);
+    const minimum = event.altKey ? 1 : Math.max(1, Math.round((snapIntervalSeconds() || 0.001) * state.sampleRateHz));
+
+    if (state.lyricDrag.mode === "move") {
+      const durationSamples = state.lyricDrag.startEndSample - state.lyricDrag.startStartSample;
+      // 限制不能跨越邻居的另一端 anchor
+      const neighbors = [...state.lyrics, ...state.rests].filter(other => other.id !== region.id).sort((a, b) => anchorStartSample(a) - anchorStartSample(b));
+      let lowerBound = minSample;
+      let upperBound = maxSample;
+      const previousNeighbor = neighbors.filter(other => anchorEndSample(other) <= state.lyricDrag.startStartSample).at(-1);
+      if (previousNeighbor) lowerBound = anchorEndSample(previousNeighbor) + minimum;
+      const nextNeighbor = neighbors.find(other => anchorStartSample(other) >= state.lyricDrag.startEndSample);
+      if (nextNeighbor) upperBound = anchorStartSample(nextNeighbor) - minimum - durationSamples;
+      const newStart = Math.max(lowerBound, Math.min(upperBound, pointerSample));
+      moveAnchor(region.startAnchorId, newStart);
+      moveAnchor(region.endAnchorId, newStart + durationSamples);
+    } else if (state.lyricDrag.mode === "stretch-start") {
+      const endSample = anchorEndSample(region);
+      const newStart = Math.max(minSample, Math.min(endSample - minimum, pointerSample));
+      moveAnchor(region.startAnchorId, newStart);
+    } else if (state.lyricDrag.mode === "stretch-end") {
+      const startSample = anchorStartSample(region);
+      const newEnd = Math.max(startSample + minimum, Math.min(maxSample, pointerSample));
+      moveAnchor(region.endAnchorId, newEnd);
+    }
+    setSelection(anchorStartSeconds(region), anchorEndSeconds(region), false);
+    renderLyrics();
+  }
+
+  function endLyricBlockDrag(event) {
+    if (!state.lyricDrag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const drag = state.lyricDrag;
+    state.lyricDrag = null;
+    document.removeEventListener("pointermove", moveLyricBlock, true);
+    document.removeEventListener("pointerup", endLyricBlockDrag, true);
+    document.removeEventListener("pointercancel", cancelLyricBlockDrag, true);
+    if (!drag.beganEdit) {
+      // 没真正拖动 → 视为点击，进入编辑
+      editLyric(drag.regionId);
+      return;
+    }
+    pruneAnchors();
+    const region = state.lyrics.find(item => item.id === drag.regionId);
+    if (region) {
+      const startSeconds = anchorStartSeconds(region);
+      const endSeconds = anchorEndSeconds(region);
+      setStatus(`${drag.mode === "move" ? "歌词区域已移动到" : "歌词区域已拉伸到"} ${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒。`, "success");
+    }
+  }
+
+  function cancelLyricBlockDrag() {
+    if (!state.lyricDrag) return;
+    const drag = state.lyricDrag;
+    state.lyricDrag = null;
+    document.removeEventListener("pointermove", moveLyricBlock, true);
+    document.removeEventListener("pointerup", endLyricBlockDrag, true);
+    document.removeEventListener("pointercancel", cancelLyricBlockDrag, true);
+    if (drag.beganEdit) {
+      // 取消拖动：丢弃刚记录的撤销点
+      editGraph.undoStack.pop();
+      updateUndoRedoButtons();
+    }
+    // 恢复原始 anchor 引用（如果分离过）
+    const region = state.lyrics.find(item => item.id === drag.regionId);
+    if (region) {
+      if (drag.detachedStart) region.startAnchorId = drag.originalStartAnchorId;
+      if (drag.detachedEnd) region.endAnchorId = drag.originalEndAnchorId;
+    }
+    pruneAnchors();
+    renderLyrics();
+    setStatus("系统取消了歌词块拖动，已恢复原位置。", "success");
   }
 
   // 在相邻 lyric/rest 共享 anchor 的位置渲染一个可拖动的共享边手柄。
@@ -938,6 +1192,7 @@
         setStatus("边界调整会吞掉相邻歌词区域，请缩小移动范围。", "error");
         return;
       }
+      editGraph.begin(existing ? `编辑歌词 ${existing.id}` : "新建歌词");
       // 复用或创建 start anchor
       let startAnchor;
       if (linkedPrevious) {
@@ -993,6 +1248,7 @@
     if (!startAnchor) startAnchor = findAnchorBySample(secondsToSample(startSeconds)) || createAnchorAtSample(secondsToSample(startSeconds));
     if (!endAnchor) endAnchor = findAnchorBySample(secondsToSample(endSeconds)) || createAnchorAtSample(secondsToSample(endSeconds));
 
+    editGraph.begin("新建歌词");
     let identifier;
     do {
       identifier = `lyric-${state.nextLyricId++}`;
@@ -1010,6 +1266,7 @@
 
   function deleteLyric() {
     if (!state.selectedLyricId) return;
+    editGraph.begin(`删除歌词 ${state.selectedLyricId}`);
     state.lyrics = state.lyrics.filter(region => region.id !== state.selectedLyricId);
     pruneAnchors();
     endLyricEdit(true);
@@ -1048,6 +1305,7 @@
     else if (nextRest) endAnchor = state.anchors.get(nextRest.startAnchorId);
     if (!startAnchor) startAnchor = findAnchorBySample(secondsToSample(start)) || createAnchorAtSample(secondsToSample(start));
     if (!endAnchor) endAnchor = findAnchorBySample(secondsToSample(end)) || createAnchorAtSample(secondsToSample(end));
+    editGraph.begin("新建休止");
     let identifier;
     do {
       identifier = `rest-${state.nextRestId++}`;
@@ -1063,6 +1321,7 @@
   }
 
   function deleteRest(id) {
+    editGraph.begin(`删除休止 ${id}`);
     state.rests = state.rests.filter(rest => rest.id !== id);
     pruneAnchors();
     hideRestInspector();
@@ -1076,7 +1335,13 @@
     if (!state.analysis || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    state.edgeDragging = { anchorId, previousSample: state.anchors.get(anchorId) ? state.anchors.get(anchorId).sample : 0 };
+    const anchor = state.anchors.get(anchorId);
+    state.edgeDragging = {
+      anchorId,
+      startSample: anchor ? anchor.sample : 0,
+      previousSample: anchor ? anchor.sample : 0,
+      beganEdit: false,
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1102,6 +1367,11 @@
     });
     const minimum = event.altKey ? 1 : Math.max(1, Math.round((snapIntervalSeconds() || 0.001) * state.sampleRateHz));
     const clamped = Math.max(minSample + minimum, Math.min(maxSample - minimum, newSample));
+    // 首次实际移动时记录撤销点（避免没移动也写一条 undo 记录）
+    if (!state.edgeDragging.beganEdit && clamped !== state.edgeDragging.startSample) {
+      editGraph.begin("拖动共享边界");
+      state.edgeDragging.beganEdit = true;
+    }
     moveAnchor(state.edgeDragging.anchorId, clamped);
     // 同步选区到正在编辑的 region（如果有）
     if (state.selectedLyricId) {
@@ -1119,17 +1389,31 @@
     event.preventDefault();
     event.stopPropagation();
     const anchorId = state.edgeDragging.anchorId;
+    const beganEdit = state.edgeDragging.beganEdit;
     state.edgeDragging = null;
     try { event.currentTarget.releasePointerCapture(event.pointerId); } catch (error) { /* pointer already released */ }
     const anchor = state.anchors.get(anchorId);
-    if (anchor) setStatus(`共享边界已移动到 ${sampleToSeconds(anchor.sample).toFixed(3)} 秒。`, "success");
+    if (anchor) {
+      if (!beganEdit) {
+        // 没真正移动，不报告"已移动"
+      } else {
+        setStatus(`共享边界已移动到 ${sampleToSeconds(anchor.sample).toFixed(3)} 秒。`, "success");
+      }
+    }
   }
 
   function cancelEdgeDrag() {
     if (!state.edgeDragging) return;
+    const anchorId = state.edgeDragging.anchorId;
     const previous = state.edgeDragging.previousSample;
-    moveAnchor(state.edgeDragging.anchorId, previous);
+    const beganEdit = state.edgeDragging.beganEdit;
     state.edgeDragging = null;
+    moveAnchor(anchorId, previous);
+    if (beganEdit) {
+      // 取消拖动：丢弃这次刚记录的撤销点，避免无效 undo 步骤。
+      editGraph.undoStack.pop();
+      updateUndoRedoButtons();
+    }
     renderLyrics();
     setStatus("系统取消了共享边移动，已恢复原边界。", "success");
   }
@@ -1141,6 +1425,7 @@
     const delta = (event.key === "ArrowRight" ? 1 : -1) * (snapIntervalSeconds() || 0.01);
     const anchor = state.anchors.get(anchorId);
     if (!anchor) return;
+    editGraph.begin("微调共享边界");
     moveAnchor(anchorId, anchor.sample + secondsToSample(delta));
     renderLyrics();
     setStatus(`共享边界已微调到 ${sampleToSeconds(anchor.sample).toFixed(3)} 秒。`, "success");
@@ -1155,6 +1440,7 @@
       setStatus("请选择和弦候选并输入修正值。", "error");
       return;
     }
+    editGraph.begin(`修正和弦 ${label}`);
     const key = chordKey(window);
     state.chordOverrides[key] = {
       label,
@@ -1170,6 +1456,7 @@
   function restoreChord() {
     const window = selectedChordWindow();
     if (!window) return;
+    editGraph.begin("恢复和弦");
     delete state.chordOverrides[chordKey(window)];
     elements.chordLabel.value = topChord(window) ? topChord(window).label : "";
     setStatus("已恢复原分析候选。", "success");
@@ -1465,6 +1752,9 @@
     }
   });
   elements.exportProjectButton.addEventListener("click", exportProject);
+  if (elements.undoButton) elements.undoButton.addEventListener("click", () => { editGraph.undo(); renderAll(); });
+  if (elements.redoButton) elements.redoButton.addEventListener("click", () => { editGraph.redo(); renderAll(); });
+  updateUndoRedoButtons();
 
   async function togglePlayback() {
     if (!state.audioUrl) return;
@@ -1647,6 +1937,18 @@
   }));
 
   document.addEventListener("keydown", event => {
+    // 撤销/重做快捷键：Ctrl+Z 撤销，Ctrl+Shift+Z 或 Ctrl+Y 重做
+    // 在文本输入框中不拦截，让浏览器原生文本编辑正常工作。
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === "z" || event.key === "Z" || event.key === "y" || event.key === "Y")) {
+      const target = event.target;
+      const editingText = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable;
+      if (editingText) return;
+      const isRedo = event.shiftKey || event.key === "y" || event.key === "Y";
+      event.preventDefault();
+      const handled = isRedo ? editGraph.redo() : editGraph.undo();
+      if (handled) renderAll();
+      return;
+    }
     if (event.key === "Escape") {
       if (state.handleDragging) {
         const previous = state.handleDragging.previous;
@@ -1660,6 +1962,8 @@
         state.dragging = null;
         setSelection(previous.start, previous.end, false);
         setStatus("已取消框选。", "success");
+      } else if (state.lyricDrag) {
+        cancelLyricDrag();
       }
       return;
     }

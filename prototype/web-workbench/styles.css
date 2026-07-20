@@ -48,6 +48,7 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { background: var(--accent-strong); }
 button.danger { color: var(--danger); }
+#undo-button, #redo-button { min-width: 4.5rem; }
 input, select, textarea { width: 100%; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface-soft); padding: 0.55rem 0.65rem; }
 textarea { resize: vertical; }
 code, pre, output { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -107,7 +108,11 @@ kbd { display: inline-block; border: 1px solid var(--border); border-bottom-widt
 .section-block { background: var(--violet-soft); border-color: color-mix(in srgb, var(--violet) 55%, transparent); }
 .chord-block { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .chord-block.corrected::after { content: "已修正"; margin-left: 0.35rem; color: var(--accent-strong); font-size: 0.58rem; }
-.lyric-block { background: var(--violet-soft); border-color: var(--violet); }
+.lyric-block { background: var(--violet-soft); border-color: var(--violet); cursor: grab; }
+.lyric-block:active { cursor: grabbing; }
+.lyric-block::before, .lyric-block::after { content: ""; position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+.lyric-block::before { left: 0; }
+.lyric-block::after { right: 0; }
 .rest-block { display: flex; align-items: center; background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--border) 45%, transparent) 6px 12px); border-color: var(--border); color: var(--muted); }
 .unassigned-block { pointer-events: auto; cursor: pointer; }
 .unassigned-block:hover { border-color: color-mix(in srgb, var(--muted) 55%, transparent); }
