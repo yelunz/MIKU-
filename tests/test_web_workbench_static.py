@@ -56,8 +56,10 @@ class WebWorkbenchStaticTests(unittest.TestCase):
 
     def test_project_and_analysis_versions_are_explicit(self) -> None:
         # 0.2.0 引入 sample + PPQ 960 + Anchor 模型；旧版 0.1.0 必须仍能导入。
-        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.2.0"', self.javascript)
+        # 0.3.0 在 0.2.0 基础上新增 syllables + vocalPreview；0.2.0 与 0.1.0 项目都必须仍能迁移导入。
+        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.3.0"', self.javascript)
         self.assertIn('PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0"', self.javascript)
+        self.assertIn('PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0"', self.javascript)
         self.assertIn('ANALYSIS_SCHEMA = "0.1.0"', self.javascript)
         self.assertIn("validateAnalysis", self.javascript)
 
@@ -166,10 +168,14 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("unassigned-block", self.javascript)
 
     def test_legacy_project_migration_is_present(self) -> None:
-        # 0.1.0 项目必须能迁移到 0.2.0 共享 anchor 模型
+        # 0.1.0 项目必须能迁移到 0.3.0 共享 anchor + syllable 模型
+        # 0.2.0 项目必须能迁移到 0.3.0（派生默认 syllables）
         self.assertIn("migrateLegacyProject", self.javascript)
         self.assertIn("PROJECT_SCHEMA_LEGACY", self.javascript)
-        self.assertIn("已导入 0.1.0 项目并迁移到 0.2.0", self.javascript)
+        self.assertIn("PROJECT_SCHEMA_LEGACY_020", self.javascript)
+        self.assertIn("已导入 0.1.0 项目并迁移到 0.3.0", self.javascript)
+        self.assertIn("已导入 0.2.0 项目并迁移到 0.3.0", self.javascript)
+        self.assertIn("已为歌词区域派生默认音节切分", self.javascript)
 
     def test_edit_graph_undo_redo_is_present(self) -> None:
         # EditGraph 第一版：撤销/重做栈、按钮、Ctrl+Z/Ctrl+Shift+Z 快捷键
@@ -552,6 +558,231 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn(".stem-preview-hint", self.styles)
         # 不使用 innerHTML（与既有规则一致）
         self.assertNotIn("innerHTML", self.javascript)
+
+    # ---- P2：读音纠正 / 歌词切分 / 试听合成（10 项）--------------------------
+
+    def test_project_schema_upgraded_to_0_3_0(self) -> None:
+        # P2：0.3.0 在 0.2.0 基础上引入 syllables + vocalPreview。
+        # 0.2.0 与 0.1.0 项目都必须仍能迁移导入。
+        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.3.0"', self.javascript)
+        self.assertIn('PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0"', self.javascript)
+        self.assertIn('PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0"', self.javascript)
+        # importProject 必须显式接受三个版本，否则拒绝。
+        self.assertIn("candidate.schema_version !== PROJECT_SCHEMA_LEGACY_020", self.javascript)
+        # 状态注释中必须说明 0.2.0 与 0.1.0 的迁移策略
+        self.assertIn("0.2.0 项目导入时为已有歌词区域派生默认 syllables", self.javascript)
+        self.assertIn("0.1.0 项目仍可通过 migrateLegacyProject 迁移到 0.3.0", self.javascript)
+
+    def test_syllable_data_model_present(self) -> None:
+        # state.syllables / nextSyllableId / selectedSyllableId 数据字段
+        self.assertIn("syllables: []", self.javascript)
+        self.assertIn("nextSyllableId: 1", self.javascript)
+        self.assertIn("selectedSyllableId: null", self.javascript)
+        # vocalPreview 状态：active / oscillators / scheduleIds / startAt
+        self.assertIn("vocalPreview: { active: false", self.javascript)
+        self.assertIn("oscillators: []", self.javascript)
+        self.assertIn("scheduleIds: []", self.javascript)
+        # vocalPreviewTimbre 默认参数（waveform/gain/attack/release）
+        self.assertIn("vocalPreviewTimbre: { waveform: \"sine\"", self.javascript)
+        self.assertIn("gain: 0.15", self.javascript)
+        self.assertIn("attack: 0.02", self.javascript)
+        self.assertIn("release: 0.08", self.javascript)
+        # 0.1.0 项目迁移时清空 syllables（派生留到歌词区域建立后）
+        self.assertIn("0.1.0 项目没有 syllables 字段", self.javascript)
+        # resetEditingState 重置 syllables / nextSyllableId / selectedSyllableId / vocalPreview
+        self.assertIn("state.syllables = []", self.javascript)
+        self.assertIn("state.nextSyllableId = 1", self.javascript)
+
+    def test_pinyin_table_covers_common_chars(self) -> None:
+        # PINYIN_TABLE 必须存在并覆盖常用汉字
+        self.assertIn("const PINYIN_TABLE = {", self.javascript)
+        # 任务规范要求的 5 个对照
+        self.assertIn('"你": "ni"', self.javascript)
+        self.assertIn('"好": "hao"', self.javascript)
+        self.assertIn('"我": "wo"', self.javascript)
+        self.assertIn('"是": "shi"', self.javascript)
+        self.assertIn('"在": "zai"', self.javascript)
+        # 读音查表失败时回退到空字符串（UI 提示"未识别"）
+        self.assertIn('Object.prototype.hasOwnProperty.call(PINYIN_TABLE, char)', self.javascript)
+
+    def test_kana_romaji_table_covers_basic_syllables(self) -> None:
+        # KANA_ROMAJI_TABLE 必须存在并覆盖清音/浊音/拗音/促音/拨音/片假名
+        self.assertIn("const KANA_ROMAJI_TABLE = {", self.javascript)
+        # 任务规范要求的 5 个对照
+        self.assertIn('"あ": "a"', self.javascript)
+        self.assertIn('"か": "ka"', self.javascript)
+        self.assertIn('"き": "ki"', self.javascript)
+        self.assertIn('"きゃ": "kya"', self.javascript)
+        self.assertIn('"ん": "n"', self.javascript)
+        # 促音「っ」单独成 syllable（defaultReading = "cl"）
+        self.assertIn('"っ": "cl"', self.javascript)
+        # 拗音末尾集合：用于 splitJapaneseLyric 判断合并
+        self.assertIn('KANA_YOON_SUFFIXES = new Set(["ゃ", "ゅ", "ょ", "ャ", "ュ", "ョ"])', self.javascript)
+        # 片假名同表
+        self.assertIn('"ア": "a"', self.javascript)
+        self.assertIn('"ッ": "cl"', self.javascript)
+
+    def test_syllable_split_functions_present(self) -> None:
+        # 三个核心切分函数
+        self.assertIn("function splitLyricToSyllables", self.javascript)
+        self.assertIn("function splitChineseLyric", self.javascript)
+        self.assertIn("function splitJapaneseLyric", self.javascript)
+        # isLyricTextChar 过滤标点/空白/CJK 标点
+        self.assertIn("function isLyricTextChar", self.javascript)
+        # allocateSyllableAnchors：在 LyricRegion 区间内等分 anchor
+        self.assertIn("function allocateSyllableAnchors", self.javascript)
+        # resplitSyllablesForRegion：重新切分单个 region
+        self.assertIn("function resplitSyllablesForRegion", self.javascript)
+        # deriveDefaultSyllablesForAllLyrics：0.2.0 → 0.3.0 迁移用
+        self.assertIn("function deriveDefaultSyllablesForAllLyrics", self.javascript)
+        # 中文按字切分；日文按假名音节切分（语言分支）
+        self.assertIn('region.language === "zh"', self.javascript)
+        self.assertIn('region.language === "ja"', self.javascript)
+        # 拗音合并：当前假名 + 下一假名（ゃ/ゅ/ょ）合并
+        self.assertIn("KANA_YOON_SUFFIXES.has(next)", self.javascript)
+        # 长音「ー」不单独成 syllable
+        self.assertIn('char === "ー"', self.javascript)
+        # syllable id 生成器
+        self.assertIn("`syllable-${state.nextSyllableId++}`", self.javascript)
+
+    def test_syllable_import_export_roundtrip(self) -> None:
+        # 导出 JSON 字段：id / lyric_id / index / text / default_reading / reading_override /
+        #               start_anchor_id / end_anchor_id
+        self.assertIn("syllables: state.syllables.map(syllable => ({", self.javascript)
+        self.assertIn("lyric_id: syllable.lyricId", self.javascript)
+        self.assertIn("index: syllable.index", self.javascript)
+        self.assertIn("text: syllable.text", self.javascript)
+        self.assertIn("default_reading: syllable.defaultReading", self.javascript)
+        self.assertIn("reading_override: syllable.readingOverride || \"\"", self.javascript)
+        self.assertIn("start_anchor_id: syllable.startAnchorId", self.javascript)
+        self.assertIn("end_anchor_id: syllable.endAnchorId", self.javascript)
+        # 导入校验：ID 重复 / 引用不存在的歌词区域 / 引用不存在的 anchor
+        self.assertIn("音节 ID 重复", self.javascript)
+        self.assertIn("引用了不存在的歌词区域", self.javascript)
+        self.assertIn("引用了不存在的 anchor", self.javascript)
+        # 导入字段加载
+        self.assertIn("lyricId,", self.javascript)
+        self.assertIn("defaultReading:", self.javascript)
+        self.assertIn("readingOverride:", self.javascript)
+        # 0.2.0 项目自动迁移：rawSyllables 为空但 lyrics 存在时派生默认 syllables
+        self.assertIn("!rawSyllables.length && state.lyrics.length", self.javascript)
+        self.assertIn("deriveDefaultSyllablesForAllLyrics()", self.javascript)
+        # 0.1.0 项目迁移：migrateLegacyProject 内为已建立的歌词区域派生默认 syllables
+        self.assertIn("0.1.0 → 0.3.0 迁移时为已建立的歌词区域派生默认 syllables", self.javascript)
+        # pruneAnchors 必须把 syllable 引用的 anchor 视为"被引用"
+        self.assertIn("syllable.startAnchorId", self.javascript)
+        self.assertIn("syllable.endAnchorId", self.javascript)
+
+    def test_vocal_preview_uses_oscillator_node(self) -> None:
+        # Web Audio API：createOscillator + createGain + connect + start + stop
+        self.assertIn("ctx.createOscillator()", self.javascript)
+        self.assertIn("ctx.createGain()", self.javascript)
+        self.assertIn("osc.connect(gain)", self.javascript)
+        self.assertIn("gain.connect(ctx.destination)", self.javascript)
+        self.assertIn("osc.start(startCtxTime)", self.javascript)
+        self.assertIn("osc.stop(releaseEnd + 0.01)", self.javascript)
+        # 包络：linearRampToValueAtTime 构造 attack + release
+        self.assertIn("gain.gain.setValueAtTime(0, startCtxTime)", self.javascript)
+        self.assertIn("gain.gain.linearRampToValueAtTime(timbre.gain, startCtxTime + attack)", self.javascript)
+        self.assertIn("gain.gain.linearRampToValueAtTime(0, releaseEnd)", self.javascript)
+        # osc.onended 自动清理（非破坏：试听结束自动复位）
+        self.assertIn("osc.onended =", self.javascript)
+        # 音高 → 频率（A4=440Hz）
+        self.assertIn("function midiToFrequency", self.javascript)
+        self.assertIn("440 * Math.pow(2, (midi - 69) / 12)", self.javascript)
+        # 试听函数
+        self.assertIn("function ensureAudioContextForPreview", self.javascript)
+        self.assertIn("function startVocalPreview", self.javascript)
+        self.assertIn("function stopVocalPreview", self.javascript)
+        # 试听状态在 stopVocalPreview 中清空
+        self.assertIn("state.vocalPreview.active = false", self.javascript)
+        # 四种基础波形必须在 <select> 中可选
+        self.assertIn('<option value="sine">正弦</option>', self.html)
+        self.assertIn('<option value="triangle">三角</option>', self.html)
+        self.assertIn('<option value="square">方波</option>', self.html)
+        self.assertIn('<option value="sawtooth">锯齿</option>', self.html)
+        # waveform 切换实时更新 vocalPreviewTimbre
+        self.assertIn('state.vocalPreviewTimbre.waveform = value', self.javascript)
+        # 试听开始/停止按钮在 HTML 中
+        self.assertIn('id="vocal-preview-button"', self.html)
+        self.assertIn('id="stop-vocal-preview-button"', self.html)
+        # 事件绑定
+        self.assertIn("elements.vocalPreviewButton.addEventListener", self.javascript)
+        self.assertIn("elements.stopVocalPreviewButton.addEventListener", self.javascript)
+        self.assertIn("elements.vocalTimbreWaveform.addEventListener", self.javascript)
+
+    def test_syllable_ui_elements_present(self) -> None:
+        # syllable-inspector section + 子元素 ID
+        self.assertIn('id="syllable-inspector"', self.html)
+        self.assertIn('id="syllable-detail"', self.html)
+        self.assertIn('id="syllable-list"', self.html)
+        self.assertIn('id="resplit-syllables-button"', self.html)
+        self.assertIn('id="vocal-timbre-waveform"', self.html)
+        # 重新切分按钮
+        self.assertIn("elements.resplitSyllablesButton.addEventListener", self.javascript)
+        self.assertIn("editGraph.begin(`重新切分 ${region.id}`)", self.javascript)
+        # elements 引用
+        self.assertIn('syllableInspector: byId("syllable-inspector")', self.javascript)
+        self.assertIn('syllableList: byId("syllable-list")', self.javascript)
+        self.assertIn('syllableDetail: byId("syllable-detail")', self.javascript)
+        # 渲染函数
+        self.assertIn("function renderSyllableInspector", self.javascript)
+        self.assertIn("function selectLyricForSyllableEdit", self.javascript)
+        self.assertIn("function selectSyllable", self.javascript)
+        self.assertIn("function updateSyllableReading", self.javascript)
+        # syllable 行用 dataset.syllableId 标识（无 innerHTML）
+        self.assertIn('row.dataset.syllableId = syllable.id', self.javascript)
+        self.assertIn('data-syllable-field="readingOverride"', self.javascript)
+        # 读音输入 change 事件 + 行点击选中事件
+        self.assertIn("elements.syllableList.addEventListener", self.javascript)
+        self.assertIn('input[data-syllable-field="readingOverride"]', self.javascript)
+        # 试听高亮 CSS class
+        self.assertIn(".syllable-row.preview-active", self.styles)
+        self.assertIn(".syllable-list", self.styles)
+        self.assertIn(".syllable-row", self.styles)
+        self.assertIn(".syllable-reading", self.styles)
+        self.assertIn(".vocal-preview-toolbar", self.styles)
+        # 选中歌词区域时显示 syllable inspector
+        self.assertIn("elements.syllableInspector.hidden = false", self.javascript)
+
+    def test_syllable_lock_toggle_present(self) -> None:
+        # HTML：lock-syllable-checkbox + lock-syllable-wrapper
+        self.assertIn('id="lock-syllable-checkbox"', self.html)
+        self.assertIn('id="lock-syllable-wrapper"', self.html)
+        # elements 引用
+        self.assertIn('lockSyllableWrapper: byId("lock-syllable-wrapper")', self.javascript)
+        self.assertIn('lockSyllableCheckbox: byId("lock-syllable-checkbox")', self.javascript)
+        # 锁定 toggle 事件：进入 editGraph undo/redo 栈
+        self.assertIn("elements.lockSyllableCheckbox.addEventListener", self.javascript)
+        self.assertIn('editGraph.begin(`锁定读音 ${id}`)', self.javascript)
+        self.assertIn('setLocked("syllable", id, elements.lockSyllableCheckbox.checked)', self.javascript)
+        # 重新切分时保留锁定的 readingOverride（按 index 匹配）
+        self.assertIn("isLocked(\"syllable\", s.id)", self.javascript)
+        self.assertIn("lockedOverrides.set(s.index", self.javascript)
+        # 0.2.0 项目没有 syllables 字段的注释（用于迁移）
+        self.assertIn("0.2.0 项目没有 syllables 字段", self.javascript)
+        # 导入时 syllable 锁定项在 syllables 加载后补全
+        self.assertIn("type === \"syllable\" && validSyllableIds.has(id)", self.javascript)
+        # refreshLockToggle 复用于 syllable
+        self.assertIn('refreshLockToggle(elements.lockSyllableWrapper, elements.lockSyllableCheckbox, "syllable"', self.javascript)
+        # resetEditingState 隐藏 lock wrapper
+        self.assertIn("elements.lockSyllableWrapper.hidden = true", self.javascript)
+
+    def test_syllable_undo_redo_snapshot_included(self) -> None:
+        # EditGraph snapshot 必须包含 syllables + nextSyllableId
+        self.assertIn("syllables: state.syllables.map(syllable => ({ ...syllable }))", self.javascript)
+        self.assertIn("nextSyllableId: state.nextSyllableId", self.javascript)
+        # restore 恢复 syllables + nextSyllableId（向前兼容：缺失时回退到空数组）
+        self.assertIn("state.syllables = Array.isArray(snapshot.syllables) ? snapshot.syllables.map(syllable => ({ ...syllable })) : []", self.javascript)
+        self.assertIn("state.nextSyllableId = Number.isFinite(snapshot.nextSyllableId) ? snapshot.nextSyllableId : 1", self.javascript)
+        # 读音修改、重新切分、锁定 toggle 三种操作必须记录 undo 点
+        self.assertIn('editGraph.begin(`修改读音 ${syllableId}`)', self.javascript)
+        self.assertIn("editGraph.begin(`重新切分 ${region.id}`)", self.javascript)
+        self.assertIn("editGraph.begin(`锁定读音 ${id}`)", self.javascript)
+        # 删除歌词时一并删除其 syllable（撤销时一并恢复）
+        self.assertIn("state.syllables.filter(s => s.lyricId !== state.selectedLyricId)", self.javascript)
+        # 删除歌词时同步清除 syllable 锁定
+        # （实现中通过 setLocked("syllable", id, false) 在 resplitSyllablesForRegion 内完成）
 
 
 

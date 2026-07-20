@@ -3,8 +3,12 @@
 (() => {
   // 项目与分析 schema。当内部数据结构发生破坏性变化时，PROJECT_SCHEMA 递增；
   // 旧版本必须能在导入时显式迁移，避免静默覆盖用户工作。
-  const PROJECT_SCHEMA = "miku-workbench-project/0.2.0";
+  // P2：0.3.0 在 0.2.0 基础上新增 syllables（歌词音节切分）+ vocalPreview（试听合成）。
+  //   - 0.2.0 项目导入时为已有歌词区域派生默认 syllables（保留所有 0.2.0 能力）。
+  //   - 0.1.0 项目仍可通过 migrateLegacyProject 迁移到 0.3.0（含 syllables 派生）。
+  const PROJECT_SCHEMA = "miku-workbench-project/0.3.0";
   const PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0";
+  const PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0";
   const ANALYSIS_SCHEMA = "0.1.0";
   const PPQ = 960;
   // sample 是音频定位的权威基准。当 sample 与 tick 出现数值漂移时以 sample 为准。
@@ -79,6 +83,18 @@
     pianoRollStemId: "master",
     // 钢琴卷帘选中用于合并的第二个音符（按住 Shift 点击选中第二个 → 合并按钮可用）。
     pianoRollMergeCandidateId: null,
+    // P2：歌词音节切分。每个 syllable 引用所属 lyric 区域 + start/end anchor（共享时间模型）。
+    // text 是单字（中文）或单假名/音节（日文）；readingOverride 是用户覆盖的读音（空表示用默认读音）。
+    // 切分由 splitLyricToSyllables 派生；用户可锁定防止重生成覆盖。
+    syllables: [],
+    nextSyllableId: 1,
+    selectedSyllableId: null,
+    // P2：试听合成状态。oscillators 数组保存当前发声的 OscillatorNode，stopPreview 时全部停止。
+    // scheduleIds 保存 setTimeout 句柄，便于在停止时清除未触发的调度。
+    vocalPreview: { active: false, oscillators: [], startAt: 0, scheduleIds: [] },
+    // P2：试听音色参数（不进入项目持久化，只保存在内存）。
+    // waveform 限制为 OscillatorNode 支持的四种基础波形；gain/attack/release 控制包络。
+    vocalPreviewTimbre: { waveform: "sine", gain: 0.15, attack: 0.02, release: 0.08 },
   };
 
   // 音高范围：C2 (36) .. C7 (96)，共 60 个半音。第一版用此固定范围。
@@ -111,6 +127,103 @@
         trimStartSeconds: 0, trimEndSeconds: 0, fadeInSeconds: 0, fadeOutSeconds: 0 },
     ];
   }
+
+  // ---- P2 读音表 -------------------------------------------------------------
+  // 设计：
+  //   - 中文常用字拼音表（首批 80 字，覆盖示例歌词）。defaultReading 去掉声调数字，
+  //     只保留拼音字母；用户可在 readingOverride 中输入完整带声调的读音。
+  //   - 日文假名罗马音表（46 清音 + 浊音/半浊音/拗音常用 + 片假名同音同表）。
+  //   - 查不到的字/假名 defaultReading = ""，UI 在读音纠正行提示"未识别字"。
+  //   - 这是最小可用版本，后续可从 unihan/kana 字典扩展。
+  const PINYIN_TABLE = {
+    "你": "ni", "好": "hao", "的": "de", "我": "wo", "是": "shi",
+    "在": "zai", "他": "ta", "她": "ta", "一": "yi", "个": "ge",
+    "有": "you", "不": "bu", "这": "zhe", "中": "zhong", "国": "guo",
+    "人": "ren", "大": "da", "小": "xiao", "上": "shang", "下": "xia",
+    "为": "wei", "来": "lai", "去": "qu", "说": "shuo", "唱": "chang",
+    "歌": "ge", "心": "xin", "里": "li", "天": "tian", "空": "kong",
+    "星": "xing", "光": "guang", "月": "yue", "亮": "liang", "风": "feng",
+    "雨": "yu", "雪": "xue", "花": "hua", "草": "cao", "树": "shu",
+    "爱": "ai", "情": "qing", "想": "xiang", "念": "nian", "梦": "meng",
+    "春": "chun", "夏": "xia", "秋": "qiu", "冬": "dong", "早": "zao",
+    "晚": "wan", "今": "jin", "明": "ming", "年": "nian", "前": "qian",
+    "后": "hou", "左": "zuo", "右": "you", "外": "wai", "内": "nei",
+    "多": "duo", "少": "shao", "很": "hen", "就": "jiu", "都": "dou",
+    "也": "ye", "还": "hai", "再": "zai", "会": "hui", "能": "neng",
+    "可": "ke", "以": "yi", "要": "yao", "把": "ba", "被": "bei",
+    "让": "rang", "给": "gei", "到": "dao", "看": "kan", "听": "ting",
+    "见": "jian", "走": "zou", "跑": "pao",
+  };
+
+  // 日文假名罗马音表。清音 / 浊音 / 半浊音 / 拗音 / 促音 / 拨音 / 片假名同音。
+  // 促音「っ」单独成 syllable，defaultReading = "cl"（USTX 惯例）。
+  // 拨音「ん」单独成 syllable，defaultReading = "n"。
+  // 长音「ー」不单独成 syllable，由 splitJapaneseLyric 修改前一个 syllable 的 endAnchorId。
+  const KANA_ROMAJI_TABLE = {
+    // 平假名清音
+    "あ": "a", "い": "i", "う": "u", "え": "e", "お": "o",
+    "か": "ka", "き": "ki", "く": "ku", "け": "ke", "こ": "ko",
+    "さ": "sa", "し": "shi", "す": "su", "せ": "se", "そ": "so",
+    "た": "ta", "ち": "chi", "つ": "tsu", "て": "te", "と": "to",
+    "な": "na", "に": "ni", "ぬ": "nu", "ね": "ne", "の": "no",
+    "は": "ha", "ひ": "hi", "ふ": "fu", "へ": "he", "ほ": "ho",
+    "ま": "ma", "み": "mi", "む": "mu", "め": "me", "も": "mo",
+    "や": "ya", "ゆ": "yu", "よ": "yo",
+    "ら": "ra", "り": "ri", "る": "ru", "れ": "re", "ろ": "ro",
+    "わ": "wa", "を": "wo", "ん": "n",
+    // 浊音 / 半浊音
+    "が": "ga", "ぎ": "gi", "ぐ": "gu", "げ": "ge", "ご": "go",
+    "ざ": "za", "じ": "ji", "ず": "zu", "ぜ": "ze", "ぞ": "zo",
+    "だ": "da", "ぢ": "ji", "づ": "zu", "で": "de", "ど": "do",
+    "ば": "ba", "び": "bi", "ぶ": "bu", "べ": "be", "ぼ": "bo",
+    "ぱ": "pa", "ぴ": "pi", "ぷ": "pu", "ぺ": "pe", "ぽ": "po",
+    // 拗音（や/ゆ/よ 拗音合并为一个 syllable）
+    "きゃ": "kya", "きゅ": "kyu", "きょ": "kyo",
+    "しゃ": "sha", "しゅ": "shu", "しょ": "sho",
+    "ちゃ": "cha", "ちゅ": "chu", "ちょ": "cho",
+    "にゃ": "nya", "にゅ": "nyu", "にょ": "nyo",
+    "ひゃ": "hya", "ひゅ": "hyu", "ひょ": "hyo",
+    "みゃ": "mya", "みゅ": "myu", "みょ": "myo",
+    "りゃ": "rya", "りゅ": "ryu", "りょ": "ryo",
+    "ぎゃ": "gya", "ぎゅ": "gyu", "ぎょ": "gyo",
+    "じゃ": "ja", "じゅ": "ju", "じょ": "jo",
+    "びゃ": "bya", "びゅ": "byu", "びょ": "byo",
+    "ぴゃ": "pya", "ぴゅ": "pyu", "ぴょ": "pyo",
+    // 促音（单独成 syllable，defaultReading = "cl"）
+    "っ": "cl",
+    // 片假名同音同表
+    "ア": "a", "イ": "i", "ウ": "u", "エ": "e", "オ": "o",
+    "カ": "ka", "キ": "ki", "ク": "ku", "ケ": "ke", "コ": "ko",
+    "サ": "sa", "シ": "shi", "ス": "su", "セ": "se", "ソ": "so",
+    "タ": "ta", "チ": "chi", "ツ": "tsu", "テ": "te", "ト": "to",
+    "ナ": "na", "ニ": "ni", "ヌ": "nu", "ネ": "ne", "ノ": "no",
+    "ハ": "ha", "ヒ": "hi", "フ": "fu", "ヘ": "he", "ホ": "ho",
+    "マ": "ma", "ミ": "mi", "ム": "mu", "メ": "me", "モ": "mo",
+    "ヤ": "ya", "ユ": "yu", "ヨ": "yo",
+    "ラ": "ra", "リ": "ri", "ル": "ru", "レ": "re", "ロ": "ro",
+    "ワ": "wa", "ヲ": "wo", "ン": "n",
+    "ガ": "ga", "ギ": "gi", "グ": "gu", "ゲ": "ge", "ゴ": "go",
+    "ザ": "za", "ジ": "ji", "ズ": "zu", "ゼ": "ze", "ゾ": "zo",
+    "ダ": "da", "ヂ": "ji", "ヅ": "zu", "デ": "de", "ド": "do",
+    "バ": "ba", "ビ": "bi", "ブ": "bu", "ベ": "be", "ボ": "bo",
+    "パ": "pa", "ピ": "pi", "プ": "pu", "ペ": "pe", "ポ": "po",
+    "キャ": "kya", "キュ": "kyu", "キョ": "kyo",
+    "シャ": "sha", "シュ": "shu", "ショ": "sho",
+    "チャ": "cha", "チュ": "chu", "チョ": "cho",
+    "ニャ": "nya", "ニュ": "nyu", "ニョ": "nyo",
+    "ヒャ": "hya", "ヒュ": "hyu", "ヒョ": "hyo",
+    "ミャ": "mya", "ミュ": "myu", "ミョ": "myo",
+    "リャ": "rya", "リュ": "ryu", "リョ": "ryo",
+    "ギャ": "gya", "ギュ": "gyu", "ギョ": "gyo",
+    "ジャ": "ja", "ジュ": "ju", "ジョ": "jo",
+    "ビャ": "bya", "ビュ": "byu", "ビョ": "byo",
+    "ピャ": "pya", "ピュ": "pyu", "ピョ": "pyo",
+    "ッ": "cl",
+  };
+
+  // 拗音首字符集合：splitJapaneseLyric 用它判断"当前假名 + 下一假名"能否合并为拗音。
+  // 例：き + ゃ → きゃ。集合里的字符是 ゃ/ゅ/ょ 三个拗音末尾。
+  const KANA_YOON_SUFFIXES = new Set(["ゃ", "ゅ", "ょ", "ャ", "ュ", "ョ"]);
 
   // Web Audio API 节点图：第一版只为 master stem 真实生效 gain/pan/mute/solo。
   // createMediaElementSource 一旦调用就不能撤销，所以 setup 只执行一次；
@@ -280,6 +393,10 @@
         // 音符候选也是用户编辑的一部分，撤销/重做时一并恢复（P1.2 轮 2 起）。
         notes: state.notes.map(note => ({ ...note })),
         nextNoteId: state.nextNoteId,
+        // P2：歌词音节切分也是用户编辑的一部分，撤销/重做时一并恢复。
+        // 读音纠正、重新切分、手动边界拖动都会进入 undo/redo 栈。
+        syllables: state.syllables.map(syllable => ({ ...syllable })),
+        nextSyllableId: state.nextSyllableId,
       };
     },
 
@@ -313,6 +430,12 @@
       state.selectedNoteId = null;
       state.noteDrag = null;
       state.pianoRollMergeCandidateId = null;
+      // P2：音节切分可能在旧版快照中不存在（0.2.0 之前），缺失时清空。
+      // 试听合成是临时状态，不进快照；恢复时强制停止。
+      state.syllables = Array.isArray(snapshot.syllables) ? snapshot.syllables.map(syllable => ({ ...syllable })) : [];
+      state.nextSyllableId = Number.isFinite(snapshot.nextSyllableId) ? snapshot.nextSyllableId : 1;
+      state.selectedSyllableId = null;
+      stopVocalPreview();
       // 恢复后清除选中编辑器视图，避免引用已不存在的 region
       elements.lyricText.value = "";
       elements.lyricLanguage.value = "zh";
@@ -436,6 +559,16 @@
     mergeNoteButton: byId("merge-note-button"),
     quantizeNoteButton: byId("quantize-note-button"),
     deleteNoteButton: byId("delete-note-button"),
+    // P2：读音与切分检查器
+    syllableInspector: byId("syllable-inspector"),
+    syllableDetail: byId("syllable-detail"),
+    syllableList: byId("syllable-list"),
+    resplitSyllablesButton: byId("resplit-syllables-button"),
+    vocalPreviewButton: byId("vocal-preview-button"),
+    stopVocalPreviewButton: byId("stop-vocal-preview-button"),
+    vocalTimbreWaveform: byId("vocal-timbre-waveform"),
+    lockSyllableWrapper: byId("lock-syllable-wrapper"),
+    lockSyllableCheckbox: byId("lock-syllable-checkbox"),
   };
 
   function setStatus(message, kind = "") {
@@ -561,7 +694,7 @@
     return anchor ? anchor.sample : 0;
   }
 
-  // 删除未被任何 lyric/rest 引用的 anchor，避免 anchor 表无限增长。
+  // 删除未被任何 lyric/rest/syllable 引用的 anchor，避免 anchor 表无限增长。
   function pruneAnchors() {
     const referenced = new Set();
     state.lyrics.forEach(region => {
@@ -571,6 +704,11 @@
     state.rests.forEach(rest => {
       referenced.add(rest.startAnchorId);
       referenced.add(rest.endAnchorId);
+    });
+    // P2：音节切分也引用 anchor（与歌词/休止共享时间模型），不能被 prune 掉。
+    state.syllables.forEach(syllable => {
+      referenced.add(syllable.startAnchorId);
+      referenced.add(syllable.endAnchorId);
     });
     for (const id of Array.from(state.anchors.keys())) {
       if (!referenced.has(id)) state.anchors.delete(id);
@@ -801,6 +939,14 @@
     state.pianoRollStemId = "master";
     if (elements.pianoRollStemSelect) elements.pianoRollStemSelect.value = "master";
     updatePianoRollToolButtons();
+    // P2：音节切分清空；新项目里旧的切分无意义。试听合成也强制停止。
+    state.syllables = [];
+    state.nextSyllableId = 1;
+    state.selectedSyllableId = null;
+    stopVocalPreview();
+    if (elements.syllableInspector) elements.syllableInspector.hidden = true;
+    if (elements.lockSyllableWrapper) elements.lockSyllableWrapper.hidden = true;
+    if (elements.stopVocalPreviewButton) elements.stopVocalPreviewButton.hidden = true;
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
@@ -1233,6 +1379,12 @@
     hideRestInspector();
     hideChordInspector();
     refreshLockToggle(elements.lockLyricWrapper, elements.lockLyricCheckbox, "lyric", id);
+    // P2：若该歌词区域没有 syllable，先派生默认切分；然后显示 syllable inspector。
+    const hasSyllables = state.syllables.some(s => s.lyricId === id);
+    if (!hasSyllables) {
+      resplitSyllablesForRegion(region);
+    }
+    selectLyricForSyllableEdit(region);
     renderLyrics();
   }
 
@@ -1268,6 +1420,10 @@
     elements.deleteLyricButton.hidden = true;
     if (clearText) elements.lyricText.value = "";
     refreshLockToggle(elements.lockLyricWrapper, elements.lockLyricCheckbox, "lyric", null);
+    // P2：退出歌词编辑时隐藏 syllable inspector 并清除选中。
+    state.selectedSyllableId = null;
+    if (elements.syllableInspector) elements.syllableInspector.hidden = true;
+    refreshLockToggle(elements.lockSyllableWrapper, elements.lockSyllableCheckbox, "syllable", null);
     renderLyrics();
   }
 
@@ -1276,6 +1432,8 @@
     elements.deleteLyricButton.hidden = true;
     elements.lyricText.value = "";
     refreshLockToggle(elements.lockLyricWrapper, elements.lockLyricCheckbox, "lyric", null);
+    // P2：隐藏 syllable inspector。
+    if (elements.syllableInspector) elements.syllableInspector.hidden = true;
   }
 
   function hideRestInspector() {
@@ -2169,6 +2327,13 @@
     applyStemMix();
     renderPianoRoll();
     updatePianoRollToolButtons();
+    // P2：渲染 syllable inspector（若选中了歌词区域）。
+    if (state.selectedLyricId) {
+      const region = state.lyrics.find(r => r.id === state.selectedLyricId);
+      if (region) selectLyricForSyllableEdit(region);
+    } else if (elements.syllableInspector) {
+      elements.syllableInspector.hidden = true;
+    }
     updateTransport();
   }
 
@@ -2385,6 +2550,8 @@
       existing.language = language;
       existing.text = text;
       pruneAnchors();
+      // P2：歌词文本变化时重新派生 syllables（锁定的 readingOverride 会被保留）。
+      resplitSyllablesForRegion(existing);
       setStatus("已更新歌词区域；与相邻区域共享的边界会一起移动。", "success");
       endLyricEdit(true);
       return;
@@ -2431,6 +2598,9 @@
       language,
       text,
     });
+    // P2：为新歌词区域派生默认 syllables。
+    const newRegion = state.lyrics[state.lyrics.length - 1];
+    resplitSyllablesForRegion(newRegion);
     setStatus("已建立歌词区域；与相邻区域共享的边界会一起移动。", "success");
     endLyricEdit(true);
   }
@@ -2442,6 +2612,12 @@
       return;
     }
     editGraph.begin(`删除歌词 ${state.selectedLyricId}`);
+    // P2：删除该歌词区域关联的所有 syllable（连同锁定状态）。
+    const removedSyllableIds = state.syllables
+      .filter(s => s.lyricId === state.selectedLyricId)
+      .map(s => s.id);
+    state.syllables = state.syllables.filter(s => s.lyricId !== state.selectedLyricId);
+    removedSyllableIds.forEach(id => setLocked("syllable", id, false));
     state.lyrics = state.lyrics.filter(region => region.id !== state.selectedLyricId);
     // 锁定状态随对象一起清除，避免遗留无主锁定项。
     setLocked("lyric", state.selectedLyricId, false);
@@ -2726,6 +2902,18 @@
           confidence: note.confidence,
           source: note.source,
         })),
+        // P2：歌词音节切分随项目持久化；引用 lyric 与 anchor。
+        // readingOverride 是用户覆盖的读音（空 = 用 defaultReading）。
+        syllables: state.syllables.map(syllable => ({
+          id: syllable.id,
+          lyric_id: syllable.lyricId,
+          index: syllable.index,
+          text: syllable.text,
+          default_reading: syllable.defaultReading,
+          reading_override: syllable.readingOverride || "",
+          start_anchor_id: syllable.startAnchorId,
+          end_anchor_id: syllable.endAnchorId,
+        })),
         preferences: {
           snap_mode: state.snapMode,
           continuous_lyrics: state.continuousLyrics,
@@ -2930,6 +3118,63 @@
     state.nextNoteId = Math.max(1, maximumNoteNumber + 1);
     state.selectedNoteId = null;
     state.pianoRollMergeCandidateId = null;
+
+    // P2：加载歌词音节切分（0.3.0 项目）。0.2.0 项目缺失 syllables 字段时，
+    // 为已有歌词区域派生默认 syllables（迁移到 0.3.0）。
+    const rawSyllables = Array.isArray(editing.syllables) ? editing.syllables : [];
+    const validLyricIdsForSyllable = new Set(state.lyrics.map(region => region.id));
+    const seenSyllableIds = new Set();
+    let maximumSyllableNumber = 0;
+    const loadedSyllables = rawSyllables.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`音节 ${index + 1} 无效。`);
+      const id = String(entry.id || `syllable-${index + 1}`);
+      if (seenSyllableIds.has(id)) throw new Error(`音节 ID 重复：${id}。`);
+      seenSyllableIds.add(id);
+      const lyricId = String(entry.lyric_id || "");
+      if (!validLyricIdsForSyllable.has(lyricId)) {
+        throw new Error(`音节 ${id} 引用了不存在的歌词区域。`);
+      }
+      const startAnchorId = String(entry.start_anchor_id || "");
+      const endAnchorId = String(entry.end_anchor_id || "");
+      if (!state.anchors.has(startAnchorId) || !state.anchors.has(endAnchorId)) {
+        throw new Error(`音节 ${id} 引用了不存在的 anchor。`);
+      }
+      const match = /^syllable-(\d+)$/.exec(id);
+      if (match) maximumSyllableNumber = Math.max(maximumSyllableNumber, Number(match[1]));
+      return {
+        id,
+        lyricId,
+        index: clamp(Math.round(finiteNumber(entry.index, 0)), 0, 1024),
+        text: String(entry.text || ""),
+        defaultReading: String(entry.default_reading || ""),
+        readingOverride: typeof entry.reading_override === "string" ? entry.reading_override : "",
+        startAnchorId,
+        endAnchorId,
+      };
+    });
+    state.syllables = loadedSyllables;
+    state.nextSyllableId = Math.max(1, maximumSyllableNumber + 1);
+    state.selectedSyllableId = null;
+    // P2：补全 syllable 锁定验证。locked_fields 在 syllables 加载前先做了 lyric/rest/chord 验证，
+    // syllable 锁定项此时还没被加入；这里基于已加载的 syllables 补上。
+    const validSyllableIds = new Set(state.syllables.map(s => s.id));
+    rawLocked.forEach(entry => {
+      if (typeof entry !== "string") return;
+      const colonIndex = entry.indexOf(":");
+      if (colonIndex < 0) return;
+      const type = entry.slice(0, colonIndex);
+      const id = entry.slice(colonIndex + 1);
+      if (type === "syllable" && validSyllableIds.has(id)) {
+        state.lockedFields.add(entry);
+      }
+    });
+    // 0.2.0 项目没有 syllables 字段：为所有歌词区域派生默认 syllables。
+    // 这是 0.2.0 → 0.3.0 的自动迁移（不记 undo，是导入的一部分）。
+    // 0.3.0 项目正常情况下 syllables 与 lyrics 同步；若因数据损坏导致 syllables 为空但 lyrics 存在，
+    // 也派生默认 syllables 作为恢复措施。
+    if (!rawSyllables.length && state.lyrics.length) {
+      deriveDefaultSyllablesForAllLyrics();
+    }
   }
 
   // 把 0.1.0 项目的秒数边界迁移到 0.2.0 的 anchor 表。
@@ -2973,6 +3218,10 @@
     state.pianoRollMergeCandidateId = null;
     state.pianoRollStemId = "master";
     if (elements.pianoRollStemSelect) elements.pianoRollStemSelect.value = "master";
+    // P2：0.1.0 项目没有 syllables 字段；迁移时清空，待歌词区域建立后再派生。
+    state.syllables = [];
+    state.nextSyllableId = 1;
+    state.selectedSyllableId = null;
 
     let previousEndAnchorId = null;
     sortedLegacy.forEach((legacy, index) => {
@@ -3030,13 +3279,20 @@
     elements.continuousLyrics.checked = state.continuousLyrics;
     if (elements.dottedSnap) elements.dottedSnap.checked = state.dottedSnap;
     if (elements.swingAmount) elements.swingAmount.value = String(state.swingAmount);
+    // P2：0.1.0 → 0.3.0 迁移时为已建立的歌词区域派生默认 syllables。
+    if (state.lyrics.length) {
+      deriveDefaultSyllablesForAllLyrics();
+    }
     const selection = editing.selection || {};
     return { selection };
   }
 
   async function importProject(file) {
     const candidate = await readJsonFile(file);
-    if (candidate.schema_version !== PROJECT_SCHEMA && candidate.schema_version !== PROJECT_SCHEMA_LEGACY) {
+    // P2：支持 0.3.0（当前）、0.2.0（自动迁移派生 syllables）、0.1.0（深度迁移）。
+    if (candidate.schema_version !== PROJECT_SCHEMA
+        && candidate.schema_version !== PROJECT_SCHEMA_LEGACY
+        && candidate.schema_version !== PROJECT_SCHEMA_LEGACY_020) {
       throw new Error(`不支持的项目版本：${String(candidate.schema_version || "缺失")}。`);
     }
     const analysis = validateAnalysis(candidate.analysis);
@@ -3044,12 +3300,20 @@
     applyAnalysis(analysis, false);
 
     if (candidate.schema_version === PROJECT_SCHEMA_LEGACY) {
-      // 旧版项目：把秒数边界迁移到共享 anchor 模型
+      // 0.1.0 项目：把秒数边界迁移到共享 anchor 模型，并派生默认 syllables。
       const { selection } = migrateLegacyProject(candidate, analysis);
       setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
-      setStatus("已导入 0.1.0 项目并迁移到 0.2.0 共享 anchor 模型；请重新选择本地 WAV 才能播放。", "success");
+      setStatus("已导入 0.1.0 项目并迁移到 0.3.0 共享 anchor + syllable 模型；请重新选择本地 WAV 才能播放。", "success");
+    } else if (candidate.schema_version === PROJECT_SCHEMA_LEGACY_020) {
+      // 0.2.0 项目：直接加载 anchor 与 region，并为已有歌词派生默认 syllables。
+      // 注意 importAnchorsAndRegions 内部已处理 editing.preferences 与 syllables 派生，这里只取 selection。
+      importAnchorsAndRegions(candidate, analysis);
+      const editing = candidate.editing || {};
+      const selection = editing.selection || {};
+      setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
+      setStatus("已导入 0.2.0 项目并迁移到 0.3.0；已为歌词区域派生默认音节切分，请重新选择本地 WAV 才能播放。", "success");
     } else {
-      // 0.2.0 项目：直接加载 anchor 与 region
+      // 0.3.0 项目：直接加载 anchor 与 region + syllables。
       // 注意 importAnchorsAndRegions 内部已处理 editing.preferences，这里只取 selection。
       importAnchorsAndRegions(candidate, analysis);
       const editing = candidate.editing || {};
@@ -3595,5 +3859,521 @@
   window.addEventListener("pagehide", () => {
     releaseAudioUrl();
     bridge.revokeAllObjectUrls();
+    // P2：页面关闭时停止试听合成，避免悬挂的 OscillatorNode。
+    stopVocalPreview();
   });
+
+  // ==== P2：歌词音节切分 ===================================================
+  // 设计：
+  //   - splitLyricToSyllables(region) 把一个 LyricRegion 切分为多个 syllable。
+  //   - 中文按字切分；日文按假名音节切分（含拗音合并、促音/拨音单独、长音延续）。
+  //   - 时间在 [startAnchorId, endAnchorId] 区间内按 syllable 数量等分；
+  //     每等分点创建或复用 anchor（共享边界规则）。
+  //   - 切分修改进入 editGraph 撤销/重做栈；锁定字段不被重新切分覆盖。
+  //   - 切分后用户可在 UI 中编辑 readingOverride（读音纠正）。
+
+  // 判断字符是否为中文/日文的有效歌词字符（跳过空格、标点、换行）。
+  function isLyricTextChar(char) {
+    if (!char) return false;
+    // 跳过 ASCII 空白与标点
+    const code = char.charCodeAt(0);
+    if (code <= 0x0020) return false;          // 空白控制字符
+    if (code >= 0x3000 && code <= 0x303F) return false; // CJK 标点
+    if (code === 0x30FB || code === 0xFF65) return false; // 中点
+    if (code === 0xFF0C) return false;          // 全角逗号
+    if (code === 0x3001 || code === 0x3002) return false; // 、。
+    if (code === 0xFF01 || code === 0xFF1F) return false; // ！？
+    if (code === 0xFF1A || code === 0xFF1B) return false; // ：；
+    return true;
+  }
+
+  // 把一个 LyricRegion 切分为 syllable 数组（不写入 state，只返回切分结果）。
+  // 调用者负责把结果合并进 state.syllables 并记录 undo。
+  function splitLyricToSyllables(region) {
+    if (!region || !region.text) return [];
+    if (region.language === "zh") return splitChineseLyric(region);
+    if (region.language === "ja") return splitJapaneseLyric(region);
+    return [];
+  }
+
+  // 中文切分：每个汉字 = 一个 syllable。defaultReading 查 PINYIN_TABLE。
+  function splitChineseLyric(region) {
+    const text = String(region.text || "");
+    const result = [];
+    let index = 0;
+    for (const char of text) {
+      if (!isLyricTextChar(char)) continue;
+      const defaultReading = Object.prototype.hasOwnProperty.call(PINYIN_TABLE, char) ? PINYIN_TABLE[char] : "";
+      result.push({
+        lyricId: region.id,
+        index,
+        text: char,
+        defaultReading,
+        readingOverride: "",
+      });
+      index += 1;
+    }
+    return result;
+  }
+
+  // 日文切分：按假名音节切分。
+  //   - 拗音（き+ゃ → きゃ）合并为一个 syllable
+  //   - 促音「っ」单独成 syllable，defaultReading = "cl"
+  //   - 拨音「ん」单独成 syllable，defaultReading = "n"
+  //   - 长音「ー」延续前一个 syllable（不单独成 syllable）
+  //   - defaultReading 查 KANA_ROMAJI_TABLE
+  function splitJapaneseLyric(region) {
+    const text = String(region.text || "");
+    const result = [];
+    let index = 0;
+    const chars = Array.from(text);
+    for (let i = 0; i < chars.length; i += 1) {
+      const char = chars[i];
+      if (!isLyricTextChar(char)) continue;
+      // 长音「ー」：不单独成 syllable，跳过（前一个 syllable 的时长会通过 anchor 分配自然延续）
+      if (char === "ー") {
+        // 若有前一个 syllable，不做任何事（时间分配时它会自动延伸到下一个分点）
+        continue;
+      }
+      // 拗音检测：当前假名 + 下一假名（ゃ/ゅ/ょ）能否合并
+      const next = chars[i + 1];
+      let syllableText = char;
+      if (next && KANA_YOON_SUFFIXES.has(next)) {
+        const combined = char + next;
+        if (Object.prototype.hasOwnProperty.call(KANA_ROMAJI_TABLE, combined)) {
+          syllableText = combined;
+          i += 1; // 跳过已合并的拗音后缀
+        }
+      }
+      const defaultReading = Object.prototype.hasOwnProperty.call(KANA_ROMAJI_TABLE, syllableText)
+        ? KANA_ROMAJI_TABLE[syllableText]
+        : "";
+      result.push({
+        lyricId: region.id,
+        index,
+        text: syllableText,
+        defaultReading,
+        readingOverride: "",
+      });
+      index += 1;
+    }
+    return result;
+  }
+
+  // 为 syllable 列表分配 anchor（在 LyricRegion 的 [startAnchorId, endAnchorId] 区间内等分）。
+  // 共享边界规则：与现有 anchor 在 ANCHOR_TOLERANCE_SECONDS 内则复用。
+  // 返回带 id/startAnchorId/endAnchorId 的完整 syllable 对象数组（未写入 state）。
+  function allocateSyllableAnchors(region, rawSyllables) {
+    if (!region || !rawSyllables.length) return [];
+    const startSample = anchorStartSample(region);
+    const endSample = anchorEndSample(region);
+    const totalSamples = Math.max(1, endSample - startSample);
+    const count = rawSyllables.length;
+    const result = [];
+    for (let i = 0; i < count; i += 1) {
+      const startFrac = i / count;
+      const endFrac = (i + 1) / count;
+      const startSamplePoint = Math.round(startSample + totalSamples * startFrac);
+      const endSamplePoint = Math.round(startSample + totalSamples * endFrac);
+      const startAnchor = (i === 0)
+        ? state.anchors.get(region.startAnchorId)
+        : (findAnchorBySample(startSamplePoint) || createAnchorAtSample(startSamplePoint));
+      const endAnchor = (i === count - 1)
+        ? state.anchors.get(region.endAnchorId)
+        : (findAnchorBySample(endSamplePoint) || createAnchorAtSample(endSamplePoint));
+      let identifier;
+      do {
+        identifier = `syllable-${state.nextSyllableId++}`;
+      } while (state.syllables.some(s => s.id === identifier));
+      result.push({
+        id: identifier,
+        lyricId: region.id,
+        index: rawSyllables[i].index,
+        text: rawSyllables[i].text,
+        defaultReading: rawSyllables[i].defaultReading,
+        readingOverride: rawSyllables[i].readingOverride || "",
+        startAnchorId: startAnchor ? startAnchor.id : region.startAnchorId,
+        endAnchorId: endAnchor ? endAnchor.id : region.endAnchorId,
+      });
+    }
+    return result;
+  }
+
+  // 为指定 LyricRegion 重新切分 syllables（删除旧的、派生新的、分配 anchor）。
+  // 锁定的 syllable 不会被覆盖（保留原 readingOverride）。
+  // 调用者负责 editGraph.begin / renderAll。
+  function resplitSyllablesForRegion(region) {
+    if (!region) return;
+    // 收集锁定的旧 syllable（按 index 保留 readingOverride）
+    const oldSyllables = state.syllables.filter(s => s.lyricId === region.id);
+    const lockedOverrides = new Map();
+    oldSyllables.forEach(s => {
+      if (isLocked("syllable", s.id) && s.readingOverride) {
+        lockedOverrides.set(s.index, { override: s.readingOverride, oldId: s.id });
+      }
+    });
+    // 删除旧的 syllable（连同锁定状态）
+    state.syllables = state.syllables.filter(s => s.lyricId !== region.id);
+    oldSyllables.forEach(s => setLocked("syllable", s.id, false));
+    // 派生新的 syllable
+    const rawSyllables = splitLyricToSyllables(region);
+    const newSyllables = allocateSyllableAnchors(region, rawSyllables);
+    // 恢复锁定的 readingOverride（按 index 匹配）
+    newSyllables.forEach(s => {
+      if (lockedOverrides.has(s.index)) {
+        s.readingOverride = lockedOverrides.get(s.index).override;
+        setLocked("syllable", s.id, true);
+      }
+    });
+    state.syllables.push(...newSyllables);
+    pruneAnchors();
+  }
+
+  // 为所有 LyricRegion 派生默认 syllables（用于 0.2.0 → 0.3.0 迁移）。
+  // 不记录 undo（迁移是导入的一部分，不是用户操作）。
+  function deriveDefaultSyllablesForAllLyrics() {
+    state.syllables = [];
+    state.nextSyllableId = 1;
+    state.lyrics.forEach(region => {
+      const rawSyllables = splitLyricToSyllables(region);
+      const newSyllables = allocateSyllableAnchors(region, rawSyllables);
+      state.syllables.push(...newSyllables);
+    });
+  }
+
+  // 选中一个 LyricRegion，在 inspector 中显示其 syllable 列表。
+  function selectLyricForSyllableEdit(region) {
+    if (!region) {
+      if (elements.syllableInspector) elements.syllableInspector.hidden = true;
+      return;
+    }
+    if (elements.syllableInspector) elements.syllableInspector.hidden = false;
+    renderSyllableInspector(region);
+  }
+
+  // 渲染 syllable inspector：显示每个 syllable 的字/假名 + 读音输入框。
+  function renderSyllableInspector(region) {
+    if (!elements.syllableList || !elements.syllableDetail) return;
+    clearElement(elements.syllableList);
+    if (!region) {
+      elements.syllableDetail.textContent = "请先选择一个歌词区域。";
+      return;
+    }
+    const syllables = state.syllables.filter(s => s.lyricId === region.id).sort((a, b) => a.index - b.index);
+    const startSeconds = anchorStartSeconds(region);
+    const endSeconds = anchorEndSeconds(region);
+    elements.syllableDetail.textContent = `歌词区域 ${region.id} · ${region.language === "zh" ? "中文" : "日文"} · ${startSeconds.toFixed(3)}–${endSeconds.toFixed(3)} 秒 · ${syllables.length} 个音节`;
+    syllables.forEach(syllable => {
+      const row = document.createElement("div");
+      row.className = "syllable-row";
+      row.dataset.syllableId = syllable.id;
+      row.setAttribute("role", "listitem");
+      const indexSpan = document.createElement("span");
+      indexSpan.className = "syllable-index";
+      indexSpan.textContent = String(syllable.index + 1);
+      const textSpan = document.createElement("span");
+      textSpan.className = "syllable-text";
+      textSpan.textContent = syllable.text || "?";
+      const readingInput = document.createElement("input");
+      readingInput.type = "text";
+      readingInput.className = "syllable-reading";
+      readingInput.value = syllable.readingOverride || syllable.defaultReading || "";
+      readingInput.placeholder = syllable.defaultReading || "未识别";
+      readingInput.dataset.syllableField = "readingOverride";
+      readingInput.dataset.syllableId = syllable.id;
+      if (!syllable.defaultReading) {
+        const warn = document.createElement("span");
+        warn.className = "syllable-warn";
+        warn.textContent = "未识别";
+        row.appendChild(indexSpan);
+        row.appendChild(textSpan);
+        row.appendChild(readingInput);
+        row.appendChild(warn);
+      } else {
+        row.appendChild(indexSpan);
+        row.appendChild(textSpan);
+        row.appendChild(readingInput);
+      }
+      if (state.vocalPreview.active) {
+        const activeId = state.vocalPreview.activeSyllableId;
+        if (activeId === syllable.id) row.classList.add("preview-active");
+      }
+      elements.syllableList.appendChild(row);
+    });
+    refreshLockToggle(elements.lockSyllableWrapper, elements.lockSyllableCheckbox, "syllable", state.selectedSyllableId);
+  }
+
+  // 更新单个 syllable 的 readingOverride（用户在输入框中编辑）。
+  function updateSyllableReading(syllableId, value) {
+    const syllable = state.syllables.find(s => s.id === syllableId);
+    if (!syllable) return;
+    if (syllable.readingOverride === value) return;
+    editGraph.begin(`修改读音 ${syllableId}`);
+    syllable.readingOverride = value;
+    setStatus(`已更新音节 ${syllableId} 的读音。`, "success");
+  }
+
+  // 选中单个 syllable（点击行）。
+  function selectSyllable(syllableId) {
+    state.selectedSyllableId = syllableId;
+    const syllable = state.syllables.find(s => s.id === syllableId);
+    if (syllable) {
+      const region = state.lyrics.find(r => r.id === syllable.lyricId);
+      if (region) renderSyllableInspector(region);
+    }
+    refreshLockToggle(elements.lockSyllableWrapper, elements.lockSyllableCheckbox, "syllable", syllableId);
+  }
+
+  // ==== P2：试听合成（OscillatorNode）=======================================
+  // 设计：
+  //   - 非破坏：用临时 OscillatorNode 发声，不修改任何持久化数据。
+  //   - 收集与当前选中 LyricRegion 时间范围重叠的 NoteEvent（按 startAnchorId 排序）。
+  //   - 对每个 NoteEvent，找到 startSample 落在其范围内的 syllable。
+  //   - 用 OscillatorNode 按音高发声，duration = NoteEvent 时长。
+  //   - sine wave + gain envelope（attack 0.02s, release 0.08s, gain 0.15）。
+  //   - 可选：在 UI 高亮当前发声的 syllable。
+
+  // 确保 audioGraph 已初始化（用于试听合成；不依赖 audio 元素）。
+  function ensureAudioContextForPreview() {
+    if (audioGraph.context) return audioGraph.context;
+    try {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return null;
+      audioGraph.context = new Ctor();
+      audioGraph.ready = true;
+      return audioGraph.context;
+    } catch (error) {
+      setStatus(`Web Audio API 初始化失败，无法试听：${error.message}`, "error");
+      return null;
+    }
+  }
+
+  // MIDI 音高 → 频率（Hz）。A4 (69) = 440 Hz。
+  function midiToFrequency(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  // 开始试听歌声草案。
+  function startVocalPreview() {
+    if (state.vocalPreview.active) {
+      stopVocalPreview();
+      return;
+    }
+    if (!state.analysis) {
+      setStatus("请先导入分析 JSON。", "error");
+      return;
+    }
+    // 确定目标 LyricRegion：优先使用当前选中的歌词区域。
+    const region = state.selectedLyricId
+      ? state.lyrics.find(r => r.id === state.selectedLyricId)
+      : state.lyrics[0];
+    if (!region) {
+      setStatus("请先建立至少一个歌词区域。", "error");
+      return;
+    }
+    // 若该 region 没有 syllable，先派生。
+    const hasSyllables = state.syllables.some(s => s.lyricId === region.id);
+    if (!hasSyllables) {
+      resplitSyllablesForRegion(region);
+      renderSyllableInspector(region);
+    }
+    const ctx = ensureAudioContextForPreview();
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume().catch(() => { /* 静默 */ });
+
+    // 收集与 LyricRegion 时间范围重叠的 NoteEvent。
+    const regionStartSample = anchorStartSample(region);
+    const regionEndSample = anchorEndSample(region);
+    const targetStemId = state.pianoRollStemId || "master";
+    const candidateNotes = state.notes
+      .filter(n => n.stemId === targetStemId || targetStemId === "master")
+      .filter(n => {
+        const ns = anchorStartSample(n);
+        const ne = anchorEndSample(n);
+        return ne > regionStartSample && ns < regionEndSample;
+      })
+      .sort((a, b) => anchorStartSample(a) - anchorStartSample(b));
+    if (!candidateNotes.length) {
+      setStatus(`当前 stem（${targetStemId}）在歌词区域范围内没有音符；请先在钢琴卷帘创建音符。`, "error");
+      return;
+    }
+
+    // 收集该 region 的 syllable（按 index 排序）。
+    const syllables = state.syllables
+      .filter(s => s.lyricId === region.id)
+      .sort((a, b) => a.index - b.index);
+    if (!syllables.length) {
+      setStatus("歌词区域没有可发音的音节。", "error");
+      return;
+    }
+
+    // 配置试听参数。
+    const timbre = state.vocalPreviewTimbre;
+    const oscillators = [];
+    const scheduleIds = [];
+    const startAt = ctx.currentTime + 0.05;
+    state.vocalPreview.active = true;
+    state.vocalPreview.startAt = startAt;
+    state.vocalPreview.activeSyllableId = null;
+    if (elements.vocalPreviewButton) elements.vocalPreviewButton.hidden = true;
+    if (elements.stopVocalPreviewButton) elements.stopVocalPreviewButton.hidden = false;
+
+    // 为每个 NoteEvent 调度一个 OscillatorNode + GainNode 包络。
+    candidateNotes.forEach(note => {
+      const noteStartSample = anchorStartSample(note);
+      const noteEndSample = anchorEndSample(note);
+      const noteStartSec = noteStartSample / state.sampleRateHz;
+      const noteEndSec = noteEndSample / state.sampleRateHz;
+      const duration = Math.max(0.05, noteEndSec - noteStartSec);
+      // 找到 startSample 落在 NoteEvent 范围内的 syllable。
+      const syllable = syllables.find(s => {
+        const ss = anchorStartSample(s);
+        return ss >= noteStartSample - 1 && ss < noteEndSample - 1;
+      }) || syllables[0];
+      const offset = Math.max(0, noteStartSec - (startAt - ctx.currentTime));
+      const scheduleId = setTimeout(() => {
+        try {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = timbre.waveform;
+          osc.frequency.value = midiToFrequency(note.pitch);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          const startCtxTime = ctx.currentTime + 0.001;
+          const attack = Math.max(0.001, timbre.attack);
+          const release = Math.max(0.001, timbre.release);
+          const sustainEnd = startCtxTime + duration;
+          const releaseEnd = sustainEnd + release;
+          gain.gain.setValueAtTime(0, startCtxTime);
+          gain.gain.linearRampToValueAtTime(timbre.gain, startCtxTime + attack);
+          gain.gain.setValueAtTime(timbre.gain, sustainEnd);
+          gain.gain.linearRampToValueAtTime(0, releaseEnd);
+          osc.start(startCtxTime);
+          osc.stop(releaseEnd + 0.01);
+          oscillators.push(osc);
+          // 高亮当前发声的 syllable。
+          if (syllable) {
+            state.vocalPreview.activeSyllableId = syllable.id;
+            const row = elements.syllableList && elements.syllableList.querySelector(`[data-syllable-id="${syllable.id}"]`);
+            if (row) {
+              elements.syllableList.querySelectorAll(".syllable-row.preview-active").forEach(r => r.classList.remove("preview-active"));
+              row.classList.add("preview-active");
+            }
+          }
+          // 自动停止：所有音符播放完毕后。
+          osc.onended = () => {
+            const idx = oscillators.indexOf(osc);
+            if (idx >= 0) oscillators.splice(idx, 1);
+            if (oscillators.length === 0 && scheduleIds.length === 0) {
+              stopVocalPreview();
+            }
+          };
+        } catch (error) {
+          setStatus(`试听合成出错：${error.message}`, "error");
+          stopVocalPreview();
+        }
+      }, Math.max(0, offset * 1000));
+      scheduleIds.push(scheduleId);
+    });
+    state.vocalPreview.oscillators = oscillators;
+    state.vocalPreview.scheduleIds = scheduleIds;
+    setStatus(`试听歌声草案：${candidateNotes.length} 个音符 · ${syllables.length} 个音节 · ${timbre.waveform}。`, "success");
+  }
+
+  // 停止试听合成。
+  function stopVocalPreview() {
+    if (!state.vocalPreview) return;
+    // 清除未触发的调度。
+    if (state.vocalPreview.scheduleIds) {
+      state.vocalPreview.scheduleIds.forEach(id => clearTimeout(id));
+      state.vocalPreview.scheduleIds = [];
+    }
+    // 停止所有正在发声的 OscillatorNode。
+    if (state.vocalPreview.oscillators) {
+      state.vocalPreview.oscillators.forEach(osc => {
+        try { osc.stop(); } catch (e) { /* 已停止 */ }
+        try { osc.disconnect(); } catch (e) { /* 已断开 */ }
+      });
+      state.vocalPreview.oscillators = [];
+    }
+    state.vocalPreview.active = false;
+    state.vocalPreview.activeSyllableId = null;
+    if (elements.vocalPreviewButton) elements.vocalPreviewButton.hidden = false;
+    if (elements.stopVocalPreviewButton) elements.stopVocalPreviewButton.hidden = true;
+    // 清除高亮。
+    if (elements.syllableList) {
+      elements.syllableList.querySelectorAll(".syllable-row.preview-active").forEach(r => r.classList.remove("preview-active"));
+    }
+  }
+
+  // ==== P2：事件绑定 ========================================================
+
+  // 试听按钮：点击开始/停止。
+  if (elements.vocalPreviewButton) {
+    elements.vocalPreviewButton.addEventListener("click", () => {
+      if (state.vocalPreview.active) {
+        stopVocalPreview();
+        setStatus("已停止试听。", "success");
+      } else {
+        startVocalPreview();
+      }
+    });
+  }
+  if (elements.stopVocalPreviewButton) {
+    elements.stopVocalPreviewButton.addEventListener("click", () => {
+      stopVocalPreview();
+      setStatus("已停止试听。", "success");
+    });
+  }
+  // 音色选择：实时更新 vocalPreviewTimbre（不进入 undo，因为是临时参数）。
+  if (elements.vocalTimbreWaveform) {
+    elements.vocalTimbreWaveform.addEventListener("change", event => {
+      const value = event.target.value;
+      if (["sine", "triangle", "square", "sawtooth"].includes(value)) {
+        state.vocalPreviewTimbre.waveform = value;
+      }
+    });
+  }
+  // 重新切分按钮：为当前选中的 LyricRegion 重新派生 syllables。
+  if (elements.resplitSyllablesButton) {
+    elements.resplitSyllablesButton.addEventListener("click", () => {
+      const region = state.selectedLyricId
+        ? state.lyrics.find(r => r.id === state.selectedLyricId)
+        : state.lyrics[0];
+      if (!region) {
+        setStatus("请先选择一个歌词区域。", "error");
+        return;
+      }
+      editGraph.begin(`重新切分 ${region.id}`);
+      resplitSyllablesForRegion(region);
+      renderSyllableInspector(region);
+      setStatus(`已重新切分歌词区域 ${region.id}。`, "success");
+    });
+  }
+  // 音节读音输入：change 事件提交 undo。
+  if (elements.syllableList) {
+    elements.syllableList.addEventListener("change", event => {
+      const input = event.target.closest('input[data-syllable-field="readingOverride"]');
+      if (!input) return;
+      const syllableId = input.dataset.syllableId;
+      if (!syllableId) return;
+      updateSyllableReading(syllableId, input.value.trim());
+    });
+    // 点击行选中 syllable。
+    elements.syllableList.addEventListener("click", event => {
+      const row = event.target.closest("[data-syllable-id]");
+      if (!row) return;
+      selectSyllable(row.dataset.syllableId);
+    });
+  }
+  // 锁定 syllable 读音。
+  if (elements.lockSyllableCheckbox) {
+    elements.lockSyllableCheckbox.addEventListener("change", () => {
+      const id = state.selectedSyllableId;
+      if (!id) return;
+      editGraph.begin(`锁定读音 ${id}`);
+      setLocked("syllable", id, elements.lockSyllableCheckbox.checked);
+      setStatus(elements.lockSyllableCheckbox.checked ? `已锁定音节 ${id}。` : `已解锁音节 ${id}。`, "success");
+    });
+  }
 })();
