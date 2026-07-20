@@ -60,9 +60,12 @@ class WebWorkbenchStaticTests(unittest.TestCase):
     def test_project_and_analysis_versions_are_explicit(self) -> None:
         # 0.2.0 引入 sample + PPQ 960 + Anchor 模型；旧版 0.1.0 必须仍能导入。
         # 0.3.0 在 0.2.0 基础上新增 syllables + vocalPreview；0.2.0 与 0.1.0 项目都必须仍能迁移导入。
-        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.3.0"', self.javascript)
+        # P4：0.4.0 在 0.3.0 基础上新增 breathMarks / paramCurves / candidates / harmonyTracks；
+        #   0.3.0 / 0.2.0 / 0.1.0 项目都必须仍能迁移导入到 0.4.0。
+        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.4.0"', self.javascript)
         self.assertIn('PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0"', self.javascript)
         self.assertIn('PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0"', self.javascript)
+        self.assertIn('PROJECT_SCHEMA_LEGACY_030 = "miku-workbench-project/0.3.0"', self.javascript)
         self.assertIn('ANALYSIS_SCHEMA = "0.1.0"', self.javascript)
         self.assertIn("validateAnalysis", self.javascript)
 
@@ -171,14 +174,17 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("unassigned-block", self.javascript)
 
     def test_legacy_project_migration_is_present(self) -> None:
-        # 0.1.0 项目必须能迁移到 0.3.0 共享 anchor + syllable 模型
-        # 0.2.0 项目必须能迁移到 0.3.0（派生默认 syllables）
+        # 0.1.0 项目必须能迁移到 0.4.0 共享 anchor + syllable 模型
+        # 0.2.0 项目必须能迁移到 0.4.0（派生默认 syllables）
+        # P4：0.3.0 项目必须能迁移到 0.4.0（P4 字段为空数组）
         self.assertIn("migrateLegacyProject", self.javascript)
         self.assertIn("PROJECT_SCHEMA_LEGACY", self.javascript)
         self.assertIn("PROJECT_SCHEMA_LEGACY_020", self.javascript)
-        self.assertIn("已导入 0.1.0 项目并迁移到 0.3.0", self.javascript)
-        self.assertIn("已导入 0.2.0 项目并迁移到 0.3.0", self.javascript)
+        self.assertIn("PROJECT_SCHEMA_LEGACY_030", self.javascript)
+        self.assertIn("已导入 0.1.0 项目并迁移到 0.4.0", self.javascript)
+        self.assertIn("已导入 0.2.0 项目并迁移到 0.4.0", self.javascript)
         self.assertIn("已为歌词区域派生默认音节切分", self.javascript)
+        self.assertIn("已导入 0.3.0 项目并迁移到 0.4.0", self.javascript)
 
     def test_edit_graph_undo_redo_is_present(self) -> None:
         # EditGraph 第一版：撤销/重做栈、按钮、Ctrl+Z/Ctrl+Shift+Z 快捷键
@@ -564,17 +570,21 @@ class WebWorkbenchStaticTests(unittest.TestCase):
 
     # ---- P2：读音纠正 / 歌词切分 / 试听合成（10 项）--------------------------
 
-    def test_project_schema_upgraded_to_0_3_0(self) -> None:
-        # P2：0.3.0 在 0.2.0 基础上引入 syllables + vocalPreview。
-        # 0.2.0 与 0.1.0 项目都必须仍能迁移导入。
-        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.3.0"', self.javascript)
+    def test_project_schema_upgraded_to_0_4_0(self) -> None:
+        # P4：0.4.0 在 0.3.0 基础上引入 breathMarks / paramCurves / candidates / harmonyTracks。
+        # 0.3.0 / 0.2.0 / 0.1.0 项目都必须仍能迁移导入到 0.4.0。
+        self.assertIn('PROJECT_SCHEMA = "miku-workbench-project/0.4.0"', self.javascript)
         self.assertIn('PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0"', self.javascript)
         self.assertIn('PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0"', self.javascript)
-        # importProject 必须显式接受三个版本，否则拒绝。
+        self.assertIn('PROJECT_SCHEMA_LEGACY_030 = "miku-workbench-project/0.3.0"', self.javascript)
+        # importProject 必须显式接受四个版本，否则拒绝。
         self.assertIn("candidate.schema_version !== PROJECT_SCHEMA_LEGACY_020", self.javascript)
-        # 状态注释中必须说明 0.2.0 与 0.1.0 的迁移策略
+        self.assertIn("candidate.schema_version !== PROJECT_SCHEMA_LEGACY_030", self.javascript)
+        # 状态注释中必须说明 0.3.0 / 0.2.0 与 0.1.0 的迁移策略
         self.assertIn("0.2.0 项目导入时为已有歌词区域派生默认 syllables", self.javascript)
         self.assertIn("0.1.0 项目仍可通过 migrateLegacyProject 迁移到 0.3.0", self.javascript)
+        self.assertIn("0.3.0 项目导入时自动迁移到 0.4.0", self.javascript)
+        self.assertIn("0.4.0 在 0.3.0 基础上新增 breathMarks", self.javascript)
 
     def test_syllable_data_model_present(self) -> None:
         # state.syllables / nextSyllableId / selectedSyllableId 数据字段
@@ -941,6 +951,388 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         # 不使用 innerHTML（与既有规则一致）
         self.assertNotIn("innerHTML", self.onboarding_js)
 
+    # ---- P4：呼吸标记 / 参数曲线 / 候选比较 / 和声轨（12 项）----------------------
+
+    def test_p4_breath_marks_data_model_present(self) -> None:
+        # P4-1：呼吸标记数据模型：breathMarks 数组 + nextBreathId + selectedBreathId
+        self.assertIn("breathMarks: []", self.javascript)
+        self.assertIn("nextBreathId: 1", self.javascript)
+        self.assertIn("selectedBreathId: null", self.javascript)
+        # breath mark 字段：id / anchorId / intensity（0..1）
+        self.assertIn("anchorId,", self.javascript)
+        self.assertIn("intensity: clamp(finiteNumber(entry.intensity, 0.5), 0, 1)", self.javascript)
+        # CRUD 函数：在选中音符末尾添加 / 选中 / 删除 / 更新强度
+        self.assertIn("function addBreathMarkAtSelectedNote", self.javascript)
+        self.assertIn("function selectBreathMark", self.javascript)
+        self.assertIn("function deleteBreathMark", self.javascript)
+        self.assertIn("function updateBreathIntensity", self.javascript)
+        # id 生成器：breath-${nextBreathId++}
+        self.assertIn("`breath-${state.nextBreathId++}`", self.javascript)
+        # 锁定机制：breath 加入 lockedFields
+        self.assertIn('isLocked("breath", id)', self.javascript)
+        self.assertIn('setLocked("breath", id, false)', self.javascript)
+        self.assertIn('setLocked("breath", id, elements.lockBreathCheckbox.checked)', self.javascript)
+        # pruneAnchors 把 breath anchor 视为"被引用"
+        self.assertIn("state.breathMarks.forEach(mark =>", self.javascript)
+        self.assertIn("referenced.add(mark.anchorId)", self.javascript)
+        # 项目导入校验：ID 重复 / 引用不存在的 anchor
+        self.assertIn("呼吸标记 ID 重复", self.javascript)
+        self.assertIn("呼吸标记 ${id} 引用了不存在的 anchor", self.javascript)
+
+    def test_p4_breath_marks_ui_present(self) -> None:
+        # HTML：breath-lane（时间轴上的呼吸标记轨道）
+        self.assertIn('id="breath-lane"', self.html)
+        self.assertIn("breath-lane", self.styles)
+        # HTML：breath-inspector（侧栏检查器）
+        self.assertIn('id="breath-inspector"', self.html)
+        self.assertIn('id="breath-detail"', self.html)
+        self.assertIn('id="breath-intensity"', self.html)
+        self.assertIn('id="delete-breath-button"', self.html)
+        # HTML：lock-breath-wrapper + lock-breath-checkbox
+        self.assertIn('id="lock-breath-wrapper"', self.html)
+        self.assertIn('id="lock-breath-checkbox"', self.html)
+        # HTML：add-breath-button（钢琴卷帘工具条）
+        self.assertIn('id="add-breath-button"', self.html)
+        # elements 引用
+        self.assertIn("breathLane: byId", self.javascript)
+        self.assertIn("breathInspector: byId", self.javascript)
+        self.assertIn("breathDetail: byId", self.javascript)
+        self.assertIn("breathIntensity: byId", self.javascript)
+        self.assertIn("deleteBreathButton: byId", self.javascript)
+        self.assertIn("lockBreathWrapper: byId", self.javascript)
+        self.assertIn("lockBreathCheckbox: byId", self.javascript)
+        self.assertIn("addBreathButton: byId", self.javascript)
+        # 渲染函数
+        self.assertIn("function renderBreathLane", self.javascript)
+        self.assertIn("function renderBreathInspector", self.javascript)
+        # renderAll 调用 renderBreathLane / renderBreathInspector
+        self.assertIn("renderBreathLane()", self.javascript)
+        self.assertIn("renderBreathInspector()", self.javascript)
+        # 事件绑定
+        self.assertIn("elements.addBreathButton.addEventListener", self.javascript)
+        self.assertIn("elements.breathIntensity.addEventListener", self.javascript)
+        self.assertIn("elements.deleteBreathButton.addEventListener", self.javascript)
+        self.assertIn("elements.lockBreathCheckbox.addEventListener", self.javascript)
+        # CSS 样式
+        self.assertIn(".breath-lane", self.styles)
+        self.assertIn(".breath-mark", self.styles)
+        self.assertIn(".breath-mark.selected", self.styles)
+        self.assertIn(".breath-mark.locked", self.styles)
+
+    def test_p4_breath_marks_undo_redo_snapshot_included(self) -> None:
+        # EditGraph snapshot 必须包含 breathMarks + nextBreathId
+        self.assertIn("breathMarks: state.breathMarks.map(mark => ({ ...mark }))", self.javascript)
+        self.assertIn("nextBreathId: state.nextBreathId", self.javascript)
+        # restore 恢复 breathMarks + nextBreathId（向前兼容：缺失时回退到空数组）
+        self.assertIn(
+            "state.breathMarks = Array.isArray(snapshot.breathMarks) ? snapshot.breathMarks.map(mark => ({ ...mark })) : []",
+            self.javascript,
+        )
+        self.assertIn(
+            "state.nextBreathId = Number.isFinite(snapshot.nextBreathId) ? snapshot.nextBreathId : 1",
+            self.javascript,
+        )
+        self.assertIn("state.selectedBreathId = null", self.javascript)
+        # 删除呼吸标记必须记录 undo 点
+        self.assertIn("editGraph.begin(`删除呼吸标记 ${id}`)", self.javascript)
+        # 锁定呼吸标记必须记录 undo 点
+        self.assertIn("editGraph.begin(`锁定呼吸 ${id}`)", self.javascript)
+        # resetEditingState 重置 breathMarks
+        self.assertIn("state.breathMarks = []", self.javascript)
+        # 项目导出包含 breath_marks
+        self.assertIn("breath_marks: state.breathMarks.map(mark => ({", self.javascript)
+        self.assertIn("anchor_id: mark.anchorId", self.javascript)
+        # 项目导入加载 breath_marks（0.4.0 项目）
+        self.assertIn("editing.breath_marks", self.javascript)
+        # 0.1.0 项目迁移时清空 breathMarks
+        self.assertIn("0.1.0 项目没有 breath_marks / param_curves / candidates / harmony_tracks 字段", self.javascript)
+        # restore 后隐藏 breath inspector
+        self.assertIn("elements.breathInspector.hidden = true", self.javascript)
+        self.assertIn("elements.lockBreathWrapper.hidden = true", self.javascript)
+
+    def test_p4_param_curves_data_model_present(self) -> None:
+        # P4-2：参数曲线数据模型：paramCurves + nextParamCurveId + selectedParamCurveId + activeParamKind
+        self.assertIn("paramCurves: []", self.javascript)
+        self.assertIn("nextParamCurveId: 1", self.javascript)
+        self.assertIn("selectedParamCurveId: null", self.javascript)
+        self.assertIn('activeParamKind: "pitch"', self.javascript)
+        # curve 字段：id / noteId / kind（pitch/dynamics/vibrato） / points 数组
+        self.assertIn("noteId,", self.javascript)
+        self.assertIn('["pitch", "dynamics", "vibrato"].includes(entry.kind)', self.javascript)
+        # 三种曲线类型
+        self.assertIn('"pitch"', self.javascript)
+        self.assertIn('"dynamics"', self.javascript)
+        self.assertIn('"vibrato"', self.javascript)
+        # point 字段：tick / value（pitch -1..1，dynamics/vibrato 0..1）
+        self.assertIn("tick: finiteNumber(point.tick, 0)", self.javascript)
+        self.assertIn("value: clamp(finiteNumber(point.value, 0), -1, 1)", self.javascript)
+        # CRUD 函数：setActiveParamKind / ensureParamCurve / addParamPoint / updateParamPoint / deleteParamCurve / selectParamCurve
+        self.assertIn("function setActiveParamKind", self.javascript)
+        self.assertIn("function ensureParamCurve", self.javascript)
+        self.assertIn("function addParamPointToSelectedCurve", self.javascript)
+        self.assertIn("function updateParamPoint", self.javascript)
+        self.assertIn("function deleteParamCurve", self.javascript)
+        self.assertIn("function selectParamCurve", self.javascript)
+        # id 生成器：curve-${nextParamCurveId++}
+        self.assertIn("`curve-${state.nextParamCurveId++}`", self.javascript)
+        # 锁定机制：param-curve 加入 lockedFields
+        self.assertIn('isLocked("param-curve", curve.id)', self.javascript)
+        self.assertIn('setLocked("param-curve", id, false)', self.javascript)
+        self.assertIn('setLocked("param-curve", id, elements.lockParamCurveCheckbox.checked)', self.javascript)
+        # 项目导入校验：ID 重复 / 引用不存在的音符
+        self.assertIn("参数曲线 ID 重复", self.javascript)
+        self.assertIn("参数曲线 ${id} 引用了不存在的音符", self.javascript)
+
+    def test_p4_param_curves_ui_present(self) -> None:
+        # HTML：param-curve-panel（隐藏的参数曲线面板）
+        self.assertIn('id="param-curve-panel"', self.html)
+        # HTML：三种曲线类型 radio
+        self.assertIn('id="param-curve-kind-pitch"', self.html)
+        self.assertIn('id="param-curve-kind-dynamics"', self.html)
+        self.assertIn('id="param-curve-kind-vibrato"', self.html)
+        # HTML：canvas + point-list + 添加/删除按钮
+        self.assertIn('id="param-curve-canvas"', self.html)
+        self.assertIn('id="param-curve-point-list"', self.html)
+        self.assertIn('id="add-param-point-button"', self.html)
+        self.assertIn('id="delete-param-curve-button"', self.html)
+        # HTML：lock-param-curve-wrapper + lock-param-curve-checkbox
+        self.assertIn('id="lock-param-curve-wrapper"', self.html)
+        self.assertIn('id="lock-param-curve-checkbox"', self.html)
+        # elements 引用
+        self.assertIn("paramCurvePanel: byId", self.javascript)
+        self.assertIn("paramCurveKindPitch: byId", self.javascript)
+        self.assertIn("paramCurveKindDynamics: byId", self.javascript)
+        self.assertIn("paramCurveKindVibrato: byId", self.javascript)
+        self.assertIn("paramCurveCanvas: byId", self.javascript)
+        self.assertIn("paramCurvePointList: byId", self.javascript)
+        self.assertIn("addParamPointButton: byId", self.javascript)
+        self.assertIn("deleteParamCurveButton: byId", self.javascript)
+        self.assertIn("lockParamCurveWrapper: byId", self.javascript)
+        self.assertIn("lockParamCurveCheckbox: byId", self.javascript)
+        # 渲染函数：renderParamCurvePanel + drawParamCurveCanvas
+        self.assertIn("function renderParamCurvePanel", self.javascript)
+        self.assertIn("function drawParamCurveCanvas", self.javascript)
+        # renderAll 调用 renderParamCurvePanel
+        self.assertIn("renderParamCurvePanel()", self.javascript)
+        # 事件绑定：radio change / 添加点 / 删除曲线 / point list input / 锁定
+        self.assertIn("elements.paramCurveKindPitch.addEventListener", self.javascript)
+        self.assertIn("elements.paramCurveKindDynamics.addEventListener", self.javascript)
+        self.assertIn("elements.paramCurveKindVibrato.addEventListener", self.javascript)
+        self.assertIn("elements.addParamPointButton.addEventListener", self.javascript)
+        self.assertIn("elements.deleteParamCurveButton.addEventListener", self.javascript)
+        self.assertIn("elements.paramCurvePointList.addEventListener", self.javascript)
+        self.assertIn("elements.lockParamCurveCheckbox.addEventListener", self.javascript)
+        # CSS 样式
+        self.assertIn(".param-curve-panel", self.styles)
+        self.assertIn(".param-curve-header", self.styles)
+        self.assertIn(".param-curve-tools", self.styles)
+        self.assertIn(".param-curve-body", self.styles)
+        self.assertIn(".param-curve-point-list", self.styles)
+        self.assertIn(".param-curve-point", self.styles)
+
+    def test_p4_param_curves_undo_redo_snapshot_included(self) -> None:
+        # EditGraph snapshot 必须包含 paramCurves（含 points 深拷贝）+ nextParamCurveId
+        self.assertIn("paramCurves: state.paramCurves.map(curve => ({", self.javascript)
+        self.assertIn("points: Array.isArray(curve.points) ? curve.points.map(point => ({ ...point })) : []", self.javascript)
+        self.assertIn("nextParamCurveId: state.nextParamCurveId", self.javascript)
+        # restore 恢复 paramCurves（含 points 深拷贝）+ nextParamCurveId（向前兼容）
+        self.assertIn(
+            "state.paramCurves = Array.isArray(snapshot.paramCurves) ? snapshot.paramCurves.map(curve => ({",
+            self.javascript,
+        )
+        self.assertIn(
+            "state.nextParamCurveId = Number.isFinite(snapshot.nextParamCurveId) ? snapshot.nextParamCurveId : 1",
+            self.javascript,
+        )
+        self.assertIn("state.selectedParamCurveId = null", self.javascript)
+        # 添加参数控制点 / 删除参数曲线 / 锁定参数曲线 三种操作必须记录 undo 点
+        self.assertIn("editGraph.begin(`添加参数控制点 ${curve.id}`)", self.javascript)
+        self.assertIn("editGraph.begin(`删除参数曲线 ${id}`)", self.javascript)
+        self.assertIn("editGraph.begin(`锁定参数曲线 ${id}`)", self.javascript)
+        # resetEditingState 重置 paramCurves
+        self.assertIn("state.paramCurves = []", self.javascript)
+        # 项目导出包含 param_curves
+        self.assertIn("param_curves: state.paramCurves.map(curve => ({", self.javascript)
+        self.assertIn("note_id: curve.noteId", self.javascript)
+        # 项目导入加载 param_curves（0.4.0 项目）
+        self.assertIn("editing.param_curves", self.javascript)
+        # restore 后隐藏 param curve panel
+        self.assertIn("elements.paramCurvePanel.hidden = true", self.javascript)
+        self.assertIn("elements.lockParamCurveWrapper.hidden = true", self.javascript)
+
+    def test_p4_candidates_data_model_present(self) -> None:
+        # P4-3：候选比较数据模型：candidates + nextCandidateId + selectedCandidateId + compareCandidateId
+        self.assertIn("candidates: []", self.javascript)
+        self.assertIn("nextCandidateId: 1", self.javascript)
+        self.assertIn("selectedCandidateId: null", self.javascript)
+        self.assertIn("compareCandidateId: null", self.javascript)
+        # candidate 字段：id / label / notes / syllables / breathMarks / createdAt
+        self.assertIn("label: String(entry.label", self.javascript)
+        self.assertIn("notes: Array.isArray(entry.notes) ? entry.notes.map(note => ({ ...note })) : []", self.javascript)
+        self.assertIn("syllables: Array.isArray(entry.syllables)", self.javascript)
+        self.assertIn("breathMarks: Array.isArray(entry.breath_marks)", self.javascript)
+        self.assertIn("createdAt: finiteNumber(entry.created_at, Date.now())", self.javascript)
+        # CRUD 函数：saveCurrentAsCandidate / loadCandidate / compareWithCandidate / deleteCandidate
+        self.assertIn("function saveCurrentAsCandidate", self.javascript)
+        self.assertIn("function loadCandidate", self.javascript)
+        self.assertIn("function compareWithCandidate", self.javascript)
+        self.assertIn("function deleteCandidate", self.javascript)
+        # id 生成器：cand-${nextCandidateId++}
+        self.assertIn("`cand-${state.nextCandidateId++}`", self.javascript)
+        # 项目导入校验：候选 ID 重复
+        self.assertIn("候选 ID 重复", self.javascript)
+
+    def test_p4_candidates_ui_present(self) -> None:
+        # HTML：candidate-card section
+        self.assertIn('id="candidate-card"', self.html)
+        # HTML：candidate-label-input + save-candidate-button + candidate-list + candidate-compare-summary
+        self.assertIn('id="candidate-label-input"', self.html)
+        self.assertIn('id="save-candidate-button"', self.html)
+        self.assertIn('id="candidate-list"', self.html)
+        self.assertIn('id="candidate-compare-summary"', self.html)
+        # elements 引用
+        self.assertIn("candidateCard: byId", self.javascript)
+        self.assertIn("candidateLabelInput: byId", self.javascript)
+        self.assertIn("saveCandidateButton: byId", self.javascript)
+        self.assertIn("candidateList: byId", self.javascript)
+        self.assertIn("candidateCompareSummary: byId", self.javascript)
+        # 渲染函数
+        self.assertIn("function renderCandidateList", self.javascript)
+        self.assertIn("function renderCandidateCompareSummary", self.javascript)
+        # renderAll 调用 renderCandidateList / renderCandidateCompareSummary
+        self.assertIn("renderCandidateList()", self.javascript)
+        self.assertIn("renderCandidateCompareSummary()", self.javascript)
+        # 事件绑定：保存按钮 + 列表点击（load/compare/delete）
+        self.assertIn("elements.saveCandidateButton.addEventListener", self.javascript)
+        self.assertIn("elements.candidateList.addEventListener", self.javascript)
+        # 列表行用 dataset.candidateId 标识；按钮用 dataset.candidateAction 区分 load/compare/delete
+        self.assertIn("row.dataset.candidateId = cand.id", self.javascript)
+        self.assertIn('dataset.candidateAction = "load"', self.javascript)
+        self.assertIn('dataset.candidateAction = "compare"', self.javascript)
+        self.assertIn('dataset.candidateAction = "delete"', self.javascript)
+        # 列表点击事件用 CSS 选择器 button[data-candidate-action] 委托
+        self.assertIn('button[data-candidate-action]', self.javascript)
+        # CSS 样式
+        self.assertIn(".candidate-card", self.styles)
+        self.assertIn(".candidate-header", self.styles)
+        self.assertIn(".candidate-list", self.styles)
+        self.assertIn(".candidate-row", self.styles)
+        self.assertIn(".candidate-label", self.styles)
+        self.assertIn(".candidate-meta", self.styles)
+        self.assertIn(".candidate-actions", self.styles)
+        self.assertIn(".candidate-compare-summary", self.styles)
+
+    def test_p4_candidates_undo_redo_snapshot_included(self) -> None:
+        # EditGraph snapshot 必须包含 candidates（深拷贝 notes/syllables/breathMarks）+ nextCandidateId
+        self.assertIn("candidates: state.candidates.map(cand => ({", self.javascript)
+        self.assertIn("notes: Array.isArray(cand.notes) ? cand.notes.map(note => ({ ...note })) : []", self.javascript)
+        self.assertIn("syllables: Array.isArray(cand.syllables) ? cand.syllables.map(syl => ({ ...syl })) : []", self.javascript)
+        self.assertIn("breathMarks: Array.isArray(cand.breathMarks) ? cand.breathMarks.map(mark => ({ ...mark })) : []", self.javascript)
+        self.assertIn("nextCandidateId: state.nextCandidateId", self.javascript)
+        # restore 恢复 candidates（深拷贝）+ nextCandidateId（向前兼容）
+        self.assertIn(
+            "state.candidates = Array.isArray(snapshot.candidates) ? snapshot.candidates.map(cand => ({",
+            self.javascript,
+        )
+        self.assertIn(
+            "state.nextCandidateId = Number.isFinite(snapshot.nextCandidateId) ? snapshot.nextCandidateId : 1",
+            self.javascript,
+        )
+        self.assertIn("state.selectedCandidateId = null", self.javascript)
+        self.assertIn("state.compareCandidateId = null", self.javascript)
+        # 保存候选 / 加载候选 / 删除候选 三种操作必须记录 undo 点
+        self.assertIn("editGraph.begin(`保存候选 ${trimmed}`)", self.javascript)
+        self.assertIn("editGraph.begin(`加载候选 ${id}`)", self.javascript)
+        self.assertIn("editGraph.begin(`删除候选 ${id}`)", self.javascript)
+        # resetEditingState 重置 candidates
+        self.assertIn("state.candidates = []", self.javascript)
+        # 项目导出包含 candidates
+        self.assertIn("candidates: state.candidates.map(cand => ({", self.javascript)
+        self.assertIn("label: cand.label", self.javascript)
+        # 项目导入加载 candidates（0.4.0 项目）
+        self.assertIn("editing.candidates", self.javascript)
+
+    def test_p4_harmony_tracks_data_model_present(self) -> None:
+        # P4-4：和声轨数据模型：harmonyTracks + nextHarmonyTrackId + selectedHarmonyTrackId
+        self.assertIn("harmonyTracks: []", self.javascript)
+        self.assertIn("nextHarmonyTrackId: 1", self.javascript)
+        self.assertIn("selectedHarmonyTrackId: null", self.javascript)
+        # track 字段：id / name / mute / solo / gain
+        self.assertIn("name: String(entry.name", self.javascript)
+        self.assertIn("mute: Boolean(entry.mute)", self.javascript)
+        self.assertIn("solo: Boolean(entry.solo)", self.javascript)
+        self.assertIn("gain: clamp(finiteNumber(entry.gain, 1.0), 0, 1.5)", self.javascript)
+        # CRUD 函数：createHarmonyTrack / deleteHarmonyTrack / selectHarmonyTrack / updateHarmonyTrack
+        self.assertIn("function createHarmonyTrack", self.javascript)
+        self.assertIn("function deleteHarmonyTrack", self.javascript)
+        self.assertIn("function selectHarmonyTrack", self.javascript)
+        self.assertIn("function updateHarmonyTrack", self.javascript)
+        # id 生成器：harmony-${nextHarmonyTrackId++}
+        self.assertIn("`harmony-${state.nextHarmonyTrackId++}`", self.javascript)
+        # 和声轨音符用 source="harmony" 标记，与 stem 音符区分
+        self.assertIn('note.source === "harmony"', self.javascript)
+        self.assertIn('block.classList.add("source-harmony")', self.javascript)
+        # 删除和声轨时一并删除其音符（source="harmony" 或 stemId === id）
+        self.assertIn('n.stemId === id || n.source === "harmony"', self.javascript)
+        # 项目导入校验：和声轨 ID 重复
+        self.assertIn("和声轨 ID 重复", self.javascript)
+
+    def test_p4_harmony_tracks_ui_present(self) -> None:
+        # HTML：harmony-track-select（和声轨选择器）
+        self.assertIn('id="harmony-track-select"', self.html)
+        # HTML：add-harmony-track-button + delete-harmony-track-button
+        self.assertIn('id="add-harmony-track-button"', self.html)
+        self.assertIn('id="delete-harmony-track-button"', self.html)
+        # HTML：harmony-track-mute + harmony-track-solo + harmony-track-gain
+        self.assertIn('id="harmony-track-mute"', self.html)
+        self.assertIn('id="harmony-track-solo"', self.html)
+        self.assertIn('id="harmony-track-gain"', self.html)
+        # elements 引用
+        self.assertIn("harmonyTrackSelect: byId", self.javascript)
+        self.assertIn("addHarmonyTrackButton: byId", self.javascript)
+        self.assertIn("deleteHarmonyTrackButton: byId", self.javascript)
+        self.assertIn("harmonyTrackMute: byId", self.javascript)
+        self.assertIn("harmonyTrackSolo: byId", self.javascript)
+        self.assertIn("harmonyTrackGain: byId", self.javascript)
+        # 渲染函数
+        self.assertIn("function renderHarmonyTrackSelector", self.javascript)
+        # renderAll 调用 renderHarmonyTrackSelector
+        self.assertIn("renderHarmonyTrackSelector()", self.javascript)
+        # 事件绑定：新增 / 删除 / 选择 / mute / solo / gain
+        self.assertIn("elements.addHarmonyTrackButton.addEventListener", self.javascript)
+        self.assertIn("elements.deleteHarmonyTrackButton.addEventListener", self.javascript)
+        self.assertIn("elements.harmonyTrackSelect.addEventListener", self.javascript)
+        self.assertIn("elements.harmonyTrackMute.addEventListener", self.javascript)
+        self.assertIn("elements.harmonyTrackSolo.addEventListener", self.javascript)
+        self.assertIn("elements.harmonyTrackGain.addEventListener", self.javascript)
+        # CSS：和声轨音符用 source-harmony 区分颜色
+        self.assertIn(".piano-roll-note.source-harmony", self.styles)
+
+    def test_p4_harmony_tracks_undo_redo_snapshot_included(self) -> None:
+        # EditGraph snapshot 必须包含 harmonyTracks + nextHarmonyTrackId
+        self.assertIn("harmonyTracks: state.harmonyTracks.map(track => ({ ...track }))", self.javascript)
+        self.assertIn("nextHarmonyTrackId: state.nextHarmonyTrackId", self.javascript)
+        # restore 恢复 harmonyTracks + nextHarmonyTrackId（向前兼容）
+        self.assertIn(
+            "state.harmonyTracks = Array.isArray(snapshot.harmonyTracks) ? snapshot.harmonyTracks.map(track => ({ ...track })) : []",
+            self.javascript,
+        )
+        self.assertIn(
+            "state.nextHarmonyTrackId = Number.isFinite(snapshot.nextHarmonyTrackId) ? snapshot.nextHarmonyTrackId : 1",
+            self.javascript,
+        )
+        self.assertIn("state.selectedHarmonyTrackId = null", self.javascript)
+        # 新增和声轨 / 删除和声轨 / 调整和声轨 三种操作必须记录 undo 点
+        self.assertIn("editGraph.begin(`新增和声轨 ${label}`)", self.javascript)
+        self.assertIn("editGraph.begin(`删除和声轨 ${id}`)", self.javascript)
+        self.assertIn("editGraph.begin(`调整和声轨 ${id} ${field}`)", self.javascript)
+        # resetEditingState 重置 harmonyTracks
+        self.assertIn("state.harmonyTracks = []", self.javascript)
+        # 项目导出包含 harmony_tracks
+        self.assertIn("harmony_tracks: state.harmonyTracks.map(track => ({", self.javascript)
+        self.assertIn("name: track.name", self.javascript)
+        # 项目导入加载 harmony_tracks（0.4.0 项目）
+        self.assertIn("editing.harmony_tracks", self.javascript)
 
 
 if __name__ == "__main__":

@@ -217,6 +217,49 @@ pre { max-height: 16rem; overflow: auto; white-space: pre-wrap; word-break: brea
 .vocal-preview-toolbar .compact-control { font-size: 0.76rem; }
 .vocal-preview-toolbar .compact-control select { min-width: 5rem; }
 
+/* P4：呼吸标记 lane / mark / inspector */
+.breath-lane { background: color-mix(in srgb, var(--violet-soft) 30%, var(--surface-soft)); min-height: 1.6rem; }
+.breath-mark { position: absolute; top: 0.15rem; bottom: 0.15rem; min-width: 1.6rem; padding: 0 0.35rem; border: 1px solid var(--violet); border-radius: 0.35rem; background: color-mix(in srgb, var(--violet) 70%, var(--surface)); color: #fff; font-size: 0.62rem; font-weight: 650; cursor: pointer; transform: translateX(-50%); }
+.breath-mark.selected { border-color: var(--accent-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
+.breath-mark.locked { border-width: 2px; border-style: double; }
+.breath-mark.locked::after { content: "🔒"; position: absolute; top: -0.5rem; right: -0.3rem; font-size: 0.55rem; }
+
+/* P4：参数曲线 panel */
+.param-curve-panel { margin-top: 0.85rem; padding: 0.85rem 0.95rem; border: 1px solid var(--border); border-radius: 0.65rem; background: var(--surface-soft); }
+.param-curve-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.65rem; }
+.param-curve-header h3 { margin: 0 0 0.2rem; }
+.param-curve-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; }
+.param-curve-tools .inline-check { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.55rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--surface); font-size: 0.78rem; font-weight: 650; cursor: pointer; }
+.param-curve-tools .inline-check input { width: auto; }
+.param-curve-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.65rem; align-items: start; }
+#param-curve-canvas { width: 100%; max-width: 320px; height: 96px; border: 1px solid var(--border); border-radius: 0.45rem; background: var(--surface); }
+.param-curve-point-list { display: grid; gap: 0.25rem; max-height: 9rem; overflow: auto; }
+.param-curve-point { display: flex; align-items: center; gap: 0.45rem; padding: 0.2rem 0.3rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); font-size: 0.74rem; }
+.param-curve-point-index { min-width: 1.8rem; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.param-curve-point-tick { min-width: 4.5rem; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.param-curve-point input[type="range"] { flex: 1; min-width: 4rem; width: auto; }
+.param-curve-point-value { min-width: 2.4rem; text-align: right; color: var(--accent-strong); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 650; }
+
+/* P4：候选比较卡片 */
+.candidate-card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.85rem; box-shadow: var(--shadow); padding: 1rem 1.1rem 1.1rem; }
+.candidate-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
+.candidate-header .subtitle { font-size: 0.82rem; line-height: 1.5; max-width: 56ch; }
+.candidate-tools { align-items: flex-end; }
+.candidate-tools .compact-control { min-width: 14rem; }
+.candidate-list { display: grid; gap: 0.4rem; }
+.candidate-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 0.35rem 0.8rem; align-items: center; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--surface-soft); }
+.candidate-row.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.candidate-row.comparing { border-color: var(--violet); background: color-mix(in srgb, var(--violet-soft) 35%, var(--surface-soft)); }
+.candidate-label { grid-column: 1; grid-row: 1; font-weight: 650; font-size: 0.92rem; }
+.candidate-meta { grid-column: 1; grid-row: 2; font-size: 0.72rem; }
+.candidate-actions { grid-column: 2; grid-row: 1 / span 2; }
+.candidate-actions button { padding: 0.35rem 0.65rem; font-size: 0.74rem; }
+.candidate-compare-summary { margin: 0.65rem 0 0; padding: 0.55rem 0.7rem; border: 1px dashed color-mix(in srgb, var(--violet) 35%, var(--border)); border-radius: 0.55rem; background: color-mix(in srgb, var(--violet-soft) 18%, var(--surface-soft)); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.74rem; line-height: 1.5; }
+.candidate-compare-summary:empty { display: none; }
+
+/* P4：和声轨音符（与 master/transcription/generation 区分） */
+.piano-roll-note.source-harmony { background: color-mix(in srgb, var(--violet) 60%, var(--surface)); border-color: var(--violet); color: #fff; }
+
 [hidden] { display: none !important; }
 @media (max-width: 980px) {
   .import-panel { grid-template-columns: 1fr 1fr; }

@@ -195,6 +195,19 @@
                 <option value="other">其他乐器</option>
               </select>
             </label>
+            <label class="compact-control" for="harmony-track-select">和声轨
+              <select id="harmony-track-select" aria-label="和声轨选择器">
+                <option value="">（无和声轨）</option>
+              </select>
+            </label>
+            <button id="add-harmony-track-button" type="button" title="新增一条和声轨">新增和声轨</button>
+            <button id="delete-harmony-track-button" type="button" class="danger" disabled title="删除当前选中的和声轨及其音符">删除和声轨</button>
+            <button id="harmony-track-mute" type="button" disabled aria-pressed="false" title="静音/取消静音当前和声轨">静音</button>
+            <button id="harmony-track-solo" type="button" disabled aria-pressed="false" title="独奏/取消独奏当前和声轨">独奏</button>
+            <label class="compact-control" for="harmony-track-gain">音量
+              <input id="harmony-track-gain" type="range" min="0" max="1.5" step="0.01" value="1" disabled>
+            </label>
+            <button id="add-breath-button" type="button" disabled title="在选中音符末尾添加呼吸标记（P4）">添加呼吸标记</button>
             <button id="split-note-button" type="button" disabled title="把选中音符从中点一分为二">拆分音符</button>
             <button id="merge-note-button" type="button" disabled title="合并选中的两个相邻同音高音符">合并音符</button>
             <button id="quantize-note-button" type="button" disabled title="把选中音符的起止边界对齐到当前吸附网格（含附点与 Swing）">量化</button>
@@ -208,6 +221,46 @@
           </div>
         </div>
         <p class="piano-roll-footnote">在空白区域拖出新音符；点击音符选中并编辑；拖动音符移动；拖动音符左右边缘拉伸；Shift + 点击第二个音符设为合并候选；Delete 删除选中音符；Esc 取消当前拖动；"量化"按钮把选中音符对齐到当前网格（含 1/8、三连音、附点、Swing）。</p>
+
+        <section id="param-curve-panel" class="param-curve-panel" hidden aria-labelledby="param-curve-title">
+          <header class="param-curve-header">
+            <div>
+              <p class="eyebrow">参数曲线 · P4</p>
+              <h3 id="param-curve-title">音符参数曲线</h3>
+              <p class="subtitle">选中音符后，为该音符编辑音高 / 力度 / 颤音参数曲线。每个控制点是 (tick, value) 对；音高范围 -1..1（相对偏移），力度/颤音范围 0..1。</p>
+            </div>
+            <div class="param-curve-tools button-row">
+              <label class="inline-check"><input type="radio" name="param-curve-kind" id="param-curve-kind-pitch" value="pitch" checked> 音高</label>
+              <label class="inline-check"><input type="radio" name="param-curve-kind" id="param-curve-kind-dynamics" value="dynamics"> 力度</label>
+              <label class="inline-check"><input type="radio" name="param-curve-kind" id="param-curve-kind-vibrato" value="vibrato"> 颤音</label>
+              <button id="add-param-point-button" type="button" title="在当前曲线添加控制点">添加控制点</button>
+              <button id="delete-param-curve-button" type="button" class="danger" title="删除当前选中音符的当前类型曲线">删除曲线</button>
+            </div>
+          </header>
+          <div class="param-curve-body">
+            <canvas id="param-curve-canvas" aria-label="参数曲线预览"></canvas>
+            <div id="param-curve-point-list" class="param-curve-point-list" role="list"></div>
+          </div>
+          <label class="inline-check lock-toggle" id="lock-param-curve-wrapper" hidden><input id="lock-param-curve-checkbox" type="checkbox"> 锁定此参数曲线（防止重生成覆盖）</label>
+        </section>
+      </section>
+
+      <section id="candidate-card" class="candidate-card" aria-labelledby="candidate-title">
+        <header class="candidate-header">
+          <div>
+            <p class="eyebrow">候选比较 · P4</p>
+            <h2 id="candidate-title">5. 候选编排比较</h2>
+            <p class="subtitle">把当前编排（音符 / 音节 / 呼吸标记）保存为候选快照，可随时加载或与当前对比。保存与加载均进入撤销栈，可逐 步回退。</p>
+          </div>
+          <div class="candidate-tools button-row">
+            <label class="compact-control" for="candidate-label-input">标签
+              <input id="candidate-label-input" type="text" maxlength="32" placeholder="如：候选 A / 主旋律 / 副歌变体" autocomplete="off">
+            </label>
+            <button id="save-candidate-button" class="primary" type="button">保存当前为候选</button>
+          </div>
+        </header>
+        <div id="candidate-list" class="candidate-list" role="list"></div>
+        <p id="candidate-compare-summary" class="candidate-compare-summary muted small-note"></p>
       </section>
 
       <div class="timeline-layout">
@@ -241,6 +294,12 @@
                 <div class="track-label">歌词区域</div>
                 <div id="lyrics-lane" class="track-lane blocks-lane lyrics-lane">
                   <span id="lyrics-empty" class="empty-lane">在波形上拖选一段，然后添加中文或日文歌词</span>
+                </div>
+              </div>
+              <div class="track-row" data-track="breath">
+                <div class="track-label">呼吸标记</div>
+                <div id="breath-lane" class="track-lane blocks-lane breath-lane">
+                  <span class="empty-lane">选中音符后点击"添加呼吸标记"，在音符末尾放置呼吸位置</span>
                 </div>
               </div>
               <div class="track-row">
@@ -322,6 +381,19 @@
             </div>
             <label class="inline-check lock-toggle" id="lock-rest-wrapper" hidden><input id="lock-rest-checkbox" type="checkbox"> 锁定此休止（防止重生成覆盖）</label>
             <p class="muted small-note">休止是显式数据：保存后会在相邻歌词之间显示明确的留白。删除后恢复为未分配空段。</p>
+          </section>
+
+          <section id="breath-inspector" class="inspector-section" hidden>
+            <h3>呼吸标记</h3>
+            <p id="breath-detail" class="muted"></p>
+            <label>强度（0..1）
+              <input id="breath-intensity" type="range" min="0" max="1" step="0.01" value="0.5">
+            </label>
+            <div class="button-row">
+              <button id="delete-breath-button" class="danger" type="button">删除呼吸标记</button>
+            </div>
+            <label class="inline-check lock-toggle" id="lock-breath-wrapper" hidden><input id="lock-breath-checkbox" type="checkbox"> 锁定此呼吸标记（防止重生成覆盖）</label>
+            <p class="muted small-note">呼吸标记引用一个 anchor（位置基准）；强度控制呼吸深浅。锁定后不会被自动重生成覆盖。</p>
           </section>
 
           <details class="inspector-section">

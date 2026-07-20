@@ -6,9 +6,13 @@
   // P2：0.3.0 在 0.2.0 基础上新增 syllables（歌词音节切分）+ vocalPreview（试听合成）。
   //   - 0.2.0 项目导入时为已有歌词区域派生默认 syllables（保留所有 0.2.0 能力）。
   //   - 0.1.0 项目仍可通过 migrateLegacyProject 迁移到 0.3.0（含 syllables 派生）。
-  const PROJECT_SCHEMA = "miku-workbench-project/0.3.0";
+  // P4：0.4.0 在 0.3.0 基础上新增 breathMarks（呼吸标记）+ paramCurves（参数曲线）
+  //   + candidates（候选比较）+ harmonyTracks（和声轨）。
+  //   - 0.3.0 项目导入时自动迁移到 0.4.0；0.2.0 / 0.1.0 项目沿用既有迁移路径最终也落到 0.4.0（P4 字段为空数组）。
+  const PROJECT_SCHEMA = "miku-workbench-project/0.4.0";
   const PROJECT_SCHEMA_LEGACY = "miku-workbench-project/0.1.0";
   const PROJECT_SCHEMA_LEGACY_020 = "miku-workbench-project/0.2.0";
+  const PROJECT_SCHEMA_LEGACY_030 = "miku-workbench-project/0.3.0";
   const ANALYSIS_SCHEMA = "0.1.0";
   const PPQ = 960;
   // P5：新手引导页 localStorage key。"true" 表示用户已完成引导，下次直接进工作台。
@@ -99,6 +103,29 @@
     // P2：试听音色参数（不进入项目持久化，只保存在内存）。
     // waveform 限制为 OscillatorNode 支持的四种基础波形；gain/attack/release 控制包络。
     vocalPreviewTimbre: { waveform: "sine", gain: 0.15, attack: 0.02, release: 0.08 },
+    // P4：呼吸标记。每个 mark 引用一个 anchor（位置）+ intensity 0..1。
+    // 锁定 key 格式 "breath:breath-1"，加入 lockedFields 与现有锁定机制一致。
+    breathMarks: [],
+    nextBreathId: 1,
+    selectedBreathId: null,
+    // P4：参数曲线。每个 curve 引用 noteId + kind（pitch/dynamics/vibrato）+ points 数组。
+    // pitch 的 value 范围 -1..1（相对音高偏移）；dynamics/vibrato 的 value 范围 0..1。
+    // 锁定 key 格式 "param-curve:curve-1"。
+    paramCurves: [],
+    nextParamCurveId: 1,
+    selectedParamCurveId: null,
+    activeParamKind: "pitch",
+    // P4：候选比较。每个 candidate 深拷贝当前 notes/syllables/breathMarks 形成快照。
+    // 加载候选会替换当前 notes/syllables/breathMarks（进入 editGraph，可撤销）。
+    candidates: [],
+    nextCandidateId: 1,
+    selectedCandidateId: null,
+    compareCandidateId: null,
+    // P4：和声轨。音符的 stemId 可引用和声轨 id（与 master/drums/bass/other 并列）。
+    // 和声轨音符 source 标记为 "harmony"，在钢琴卷帘中以不同颜色显示。
+    harmonyTracks: [],
+    nextHarmonyTrackId: 1,
+    selectedHarmonyTrackId: null,
   };
 
   // 音高范围：C2 (36) .. C7 (96)，共 60 个半音。第一版用此固定范围。
@@ -514,6 +541,26 @@
         // 读音纠正、重新切分、手动边界拖动都会进入 undo/redo 栈。
         syllables: state.syllables.map(syllable => ({ ...syllable })),
         nextSyllableId: state.nextSyllableId,
+        // P4：呼吸标记随快照保存（含 anchor 引用与 intensity）。
+        breathMarks: state.breathMarks.map(mark => ({ ...mark })),
+        nextBreathId: state.nextBreathId,
+        // P4：参数曲线随快照保存（含 points 数组的深拷贝）。
+        paramCurves: state.paramCurves.map(curve => ({
+          ...curve,
+          points: Array.isArray(curve.points) ? curve.points.map(point => ({ ...point })) : [],
+        })),
+        nextParamCurveId: state.nextParamCurveId,
+        // P4：候选比较随快照保存（候选本身是深拷贝快照，撤销/重做时不丢失）。
+        candidates: state.candidates.map(cand => ({
+          ...cand,
+          notes: Array.isArray(cand.notes) ? cand.notes.map(note => ({ ...note })) : [],
+          syllables: Array.isArray(cand.syllables) ? cand.syllables.map(syl => ({ ...syl })) : [],
+          breathMarks: Array.isArray(cand.breathMarks) ? cand.breathMarks.map(mark => ({ ...mark })) : [],
+        })),
+        nextCandidateId: state.nextCandidateId,
+        // P4：和声轨随快照保存（与 stem 轨并列）。
+        harmonyTracks: state.harmonyTracks.map(track => ({ ...track })),
+        nextHarmonyTrackId: state.nextHarmonyTrackId,
       };
     },
 
@@ -553,6 +600,31 @@
       state.nextSyllableId = Number.isFinite(snapshot.nextSyllableId) ? snapshot.nextSyllableId : 1;
       state.selectedSyllableId = null;
       stopVocalPreview();
+      // P4：呼吸标记在旧版快照中不存在（0.3.0 之前），缺失时清空。
+      state.breathMarks = Array.isArray(snapshot.breathMarks) ? snapshot.breathMarks.map(mark => ({ ...mark })) : [];
+      state.nextBreathId = Number.isFinite(snapshot.nextBreathId) ? snapshot.nextBreathId : 1;
+      state.selectedBreathId = null;
+      // P4：参数曲线在旧版快照中不存在，缺失时清空。points 数组单独深拷贝。
+      state.paramCurves = Array.isArray(snapshot.paramCurves) ? snapshot.paramCurves.map(curve => ({
+        ...curve,
+        points: Array.isArray(curve.points) ? curve.points.map(point => ({ ...point })) : [],
+      })) : [];
+      state.nextParamCurveId = Number.isFinite(snapshot.nextParamCurveId) ? snapshot.nextParamCurveId : 1;
+      state.selectedParamCurveId = null;
+      // P4：候选比较在旧版快照中不存在，缺失时清空。候选内部数据深拷贝。
+      state.candidates = Array.isArray(snapshot.candidates) ? snapshot.candidates.map(cand => ({
+        ...cand,
+        notes: Array.isArray(cand.notes) ? cand.notes.map(note => ({ ...note })) : [],
+        syllables: Array.isArray(cand.syllables) ? cand.syllables.map(syl => ({ ...syl })) : [],
+        breathMarks: Array.isArray(cand.breathMarks) ? cand.breathMarks.map(mark => ({ ...mark })) : [],
+      })) : [];
+      state.nextCandidateId = Number.isFinite(snapshot.nextCandidateId) ? snapshot.nextCandidateId : 1;
+      state.selectedCandidateId = null;
+      state.compareCandidateId = null;
+      // P4：和声轨在旧版快照中不存在，缺失时清空。
+      state.harmonyTracks = Array.isArray(snapshot.harmonyTracks) ? snapshot.harmonyTracks.map(track => ({ ...track })) : [];
+      state.nextHarmonyTrackId = Number.isFinite(snapshot.nextHarmonyTrackId) ? snapshot.nextHarmonyTrackId : 1;
+      state.selectedHarmonyTrackId = null;
       // 恢复后清除选中编辑器视图，避免引用已不存在的 region
       elements.lyricText.value = "";
       elements.lyricLanguage.value = "zh";
@@ -560,6 +632,11 @@
       elements.deleteLyricButton.hidden = true;
       elements.chordInspector.hidden = true;
       elements.restInspector.hidden = true;
+      // P4：恢复后隐藏 P4 inspector 视图，避免引用已不存在的呼吸标记/参数曲线。
+      if (elements.breathInspector) elements.breathInspector.hidden = true;
+      if (elements.paramCurvePanel) elements.paramCurvePanel.hidden = true;
+      if (elements.lockBreathWrapper) elements.lockBreathWrapper.hidden = true;
+      if (elements.lockParamCurveWrapper) elements.lockParamCurveWrapper.hidden = true;
       elements.selectionStart.value = state.selection.start.toFixed(3);
       elements.selectionEnd.value = state.selection.end.toFixed(3);
     },
@@ -696,6 +773,39 @@
     vocalTimbreWaveform: byId("vocal-timbre-waveform"),
     lockSyllableWrapper: byId("lock-syllable-wrapper"),
     lockSyllableCheckbox: byId("lock-syllable-checkbox"),
+    // P4：呼吸标记 inspector 与钢琴卷帘按钮
+    breathLane: byId("breath-lane"),
+    breathInspector: byId("breath-inspector"),
+    breathDetail: byId("breath-detail"),
+    breathIntensity: byId("breath-intensity"),
+    deleteBreathButton: byId("delete-breath-button"),
+    lockBreathWrapper: byId("lock-breath-wrapper"),
+    lockBreathCheckbox: byId("lock-breath-checkbox"),
+    addBreathButton: byId("add-breath-button"),
+    // P4：参数曲线子面板（钢琴卷帘内）
+    paramCurvePanel: byId("param-curve-panel"),
+    paramCurveKindPitch: byId("param-curve-kind-pitch"),
+    paramCurveKindDynamics: byId("param-curve-kind-dynamics"),
+    paramCurveKindVibrato: byId("param-curve-kind-vibrato"),
+    paramCurveCanvas: byId("param-curve-canvas"),
+    paramCurvePointList: byId("param-curve-point-list"),
+    addParamPointButton: byId("add-param-point-button"),
+    deleteParamCurveButton: byId("delete-param-curve-button"),
+    lockParamCurveWrapper: byId("lock-param-curve-wrapper"),
+    lockParamCurveCheckbox: byId("lock-param-curve-checkbox"),
+    // P4：候选比较卡片
+    candidateCard: byId("candidate-card"),
+    candidateLabelInput: byId("candidate-label-input"),
+    saveCandidateButton: byId("save-candidate-button"),
+    candidateList: byId("candidate-list"),
+    candidateCompareSummary: byId("candidate-compare-summary"),
+    // P4：和声轨选择器与控件
+    harmonyTrackSelect: byId("harmony-track-select"),
+    addHarmonyTrackButton: byId("add-harmony-track-button"),
+    deleteHarmonyTrackButton: byId("delete-harmony-track-button"),
+    harmonyTrackMute: byId("harmony-track-mute"),
+    harmonyTrackSolo: byId("harmony-track-solo"),
+    harmonyTrackGain: byId("harmony-track-gain"),
   };
 
   function setStatus(message, kind = "") {
@@ -821,7 +931,7 @@
     return anchor ? anchor.sample : 0;
   }
 
-  // 删除未被任何 lyric/rest/syllable 引用的 anchor，避免 anchor 表无限增长。
+  // 删除未被任何 lyric/rest/syllable/breathMark 引用的 anchor，避免 anchor 表无限增长。
   function pruneAnchors() {
     const referenced = new Set();
     state.lyrics.forEach(region => {
@@ -836,6 +946,10 @@
     state.syllables.forEach(syllable => {
       referenced.add(syllable.startAnchorId);
       referenced.add(syllable.endAnchorId);
+    });
+    // P4：呼吸标记也引用 anchor（位置基准），不能被 prune 掉。
+    state.breathMarks.forEach(mark => {
+      referenced.add(mark.anchorId);
     });
     for (const id of Array.from(state.anchors.keys())) {
       if (!referenced.has(id)) state.anchors.delete(id);
@@ -1074,6 +1188,37 @@
     if (elements.syllableInspector) elements.syllableInspector.hidden = true;
     if (elements.lockSyllableWrapper) elements.lockSyllableWrapper.hidden = true;
     if (elements.stopVocalPreviewButton) elements.stopVocalPreviewButton.hidden = true;
+    // P4：呼吸标记清空；新项目里旧的呼吸标记无意义。
+    state.breathMarks = [];
+    state.nextBreathId = 1;
+    state.selectedBreathId = null;
+    if (elements.breathInspector) elements.breathInspector.hidden = true;
+    if (elements.lockBreathWrapper) elements.lockBreathWrapper.hidden = true;
+    // P4：参数曲线清空；新项目里旧的曲线无意义。
+    state.paramCurves = [];
+    state.nextParamCurveId = 1;
+    state.selectedParamCurveId = null;
+    state.activeParamKind = "pitch";
+    if (elements.paramCurvePanel) elements.paramCurvePanel.hidden = true;
+    if (elements.lockParamCurveWrapper) elements.lockParamCurveWrapper.hidden = true;
+    // P4：候选清空；新项目里旧的候选无意义。
+    state.candidates = [];
+    state.nextCandidateId = 1;
+    state.selectedCandidateId = null;
+    state.compareCandidateId = null;
+    if (elements.candidateList) clearElement(elements.candidateList);
+    if (elements.candidateCompareSummary) elements.candidateCompareSummary.textContent = "";
+    // P4：和声轨清空；新项目里旧的和声轨无意义。
+    state.harmonyTracks = [];
+    state.nextHarmonyTrackId = 1;
+    state.selectedHarmonyTrackId = null;
+    if (elements.harmonyTrackSelect) {
+      clearElement(elements.harmonyTrackSelect);
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "（无和声轨）";
+      elements.harmonyTrackSelect.appendChild(placeholder);
+    }
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
@@ -2319,6 +2464,8 @@
     if (state.pianoRollMergeCandidateId === note.id) block.classList.add("merge-candidate");
     if (note.source === "transcription") block.classList.add("source-transcription");
     else if (note.source === "generation") block.classList.add("source-generation");
+    // P4：和声轨音符以不同颜色显示（source="harmony" 标记）。
+    if (note.source === "harmony") block.classList.add("source-harmony");
     block.addEventListener("pointerdown", event => beginNoteDrag(event, note));
     return block;
   }
@@ -2579,6 +2726,13 @@
     } else if (elements.syllableInspector) {
       elements.syllableInspector.hidden = true;
     }
+    // P4：渲染呼吸标记 lane / 参数曲线 panel / 候选列表 / 和声轨选择器。
+    renderBreathLane();
+    renderBreathInspector();
+    renderParamCurvePanel();
+    renderCandidateList();
+    renderCandidateCompareSummary();
+    renderHarmonyTrackSelector();
     updateTransport();
   }
 
@@ -3159,6 +3313,40 @@
           start_anchor_id: syllable.startAnchorId,
           end_anchor_id: syllable.endAnchorId,
         })),
+        // P4：呼吸标记随项目持久化；引用 anchor（位置基准）+ intensity 0..1。
+        breath_marks: state.breathMarks.map(mark => ({
+          id: mark.id,
+          anchor_id: mark.anchorId,
+          intensity: finiteNumber(mark.intensity, 0.5),
+        })),
+        // P4：参数曲线随项目持久化；引用 noteId + kind（pitch/dynamics/vibrato）+ points 数组。
+        // pitch 的 value 范围 -1..1（相对音高偏移）；dynamics/vibrato 的 value 范围 0..1。
+        param_curves: state.paramCurves.map(curve => ({
+          id: curve.id,
+          note_id: curve.noteId,
+          kind: curve.kind,
+          points: Array.isArray(curve.points) ? curve.points.map(point => ({
+            tick: finiteNumber(point.tick, 0),
+            value: finiteNumber(point.value, 0),
+          })) : [],
+        })),
+        // P4：候选比较随项目持久化；每个候选是当时编排的深拷贝快照。
+        candidates: state.candidates.map(cand => ({
+          id: cand.id,
+          label: cand.label,
+          notes: Array.isArray(cand.notes) ? cand.notes.map(note => ({ ...note })) : [],
+          syllables: Array.isArray(cand.syllables) ? cand.syllables.map(syl => ({ ...syl })) : [],
+          breath_marks: Array.isArray(cand.breathMarks) ? cand.breathMarks.map(mark => ({ ...mark })) : [],
+          created_at: finiteNumber(cand.createdAt, 0),
+        })),
+        // P4：和声轨随项目持久化；音符的 stemId 可引用和声轨 id。
+        harmony_tracks: state.harmonyTracks.map(track => ({
+          id: track.id,
+          name: track.name,
+          mute: track.mute,
+          solo: track.solo,
+          gain: track.gain,
+        })),
         preferences: {
           snap_mode: state.snapMode,
           continuous_lyrics: state.continuousLyrics,
@@ -3356,7 +3544,8 @@
         pitch: clamp(Math.round(finiteNumber(entry.pitch, 60)), PIANO_ROLL_MIN_PITCH, PIANO_ROLL_MAX_PITCH),
         velocity: clamp(finiteNumber(entry.velocity, 0.8), 0, 1),
         confidence: clamp(finiteNumber(entry.confidence, 0), 0, 1),
-        source: ["manual", "transcription", "generation"].includes(entry.source) ? entry.source : "manual",
+        // P4：source 新增 "harmony"（和声轨音符）；其它值回退到 "manual"。
+        source: ["manual", "transcription", "generation", "harmony"].includes(entry.source) ? entry.source : "manual",
       };
     });
     state.notes = notes;
@@ -3413,6 +3602,111 @@
         state.lockedFields.add(entry);
       }
     });
+    // P4：加载呼吸标记（0.4.0 项目）。0.3.0 / 0.2.0 / 0.1.0 项目缺失时为空数组（自动迁移）。
+    const rawBreathMarks = Array.isArray(editing.breath_marks) ? editing.breath_marks : [];
+    const seenBreathIds = new Set();
+    let maximumBreathNumber = 0;
+    const breathMarks = rawBreathMarks.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`呼吸标记 ${index + 1} 无效。`);
+      const id = String(entry.id || `breath-${index + 1}`);
+      if (seenBreathIds.has(id)) throw new Error(`呼吸标记 ID 重复：${id}。`);
+      seenBreathIds.add(id);
+      const anchorId = String(entry.anchor_id || "");
+      if (!state.anchors.has(anchorId)) throw new Error(`呼吸标记 ${id} 引用了不存在的 anchor。`);
+      const match = /^breath-(\d+)$/.exec(id);
+      if (match) maximumBreathNumber = Math.max(maximumBreathNumber, Number(match[1]));
+      return {
+        id,
+        anchorId,
+        intensity: clamp(finiteNumber(entry.intensity, 0.5), 0, 1),
+      };
+    });
+    state.breathMarks = breathMarks;
+    state.nextBreathId = Math.max(1, maximumBreathNumber + 1);
+    state.selectedBreathId = null;
+    // P4：加载参数曲线（0.4.0 项目）。引用 noteId + kind + points。
+    const rawParamCurves = Array.isArray(editing.param_curves) ? editing.param_curves : [];
+    const validNoteIdsForCurve = new Set(state.notes.map(note => note.id));
+    const seenCurveIds = new Set();
+    let maximumCurveNumber = 0;
+    const paramCurves = rawParamCurves.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`参数曲线 ${index + 1} 无效。`);
+      const id = String(entry.id || `curve-${index + 1}`);
+      if (seenCurveIds.has(id)) throw new Error(`参数曲线 ID 重复：${id}。`);
+      seenCurveIds.add(id);
+      const noteId = String(entry.note_id || "");
+      if (!validNoteIdsForCurve.has(noteId)) throw new Error(`参数曲线 ${id} 引用了不存在的音符。`);
+      const kind = ["pitch", "dynamics", "vibrato"].includes(entry.kind) ? entry.kind : "pitch";
+      const match = /^curve-(\d+)$/.exec(id);
+      if (match) maximumCurveNumber = Math.max(maximumCurveNumber, Number(match[1]));
+      const points = Array.isArray(entry.points) ? entry.points.map(point => ({
+        tick: finiteNumber(point.tick, 0),
+        value: clamp(finiteNumber(point.value, 0), -1, 1),
+      })) : [];
+      return { id, noteId, kind, points };
+    });
+    state.paramCurves = paramCurves;
+    state.nextParamCurveId = Math.max(1, maximumCurveNumber + 1);
+    state.selectedParamCurveId = null;
+    state.activeParamKind = "pitch";
+    // P4：加载候选比较（0.4.0 项目）。每个候选是当时编排的深拷贝快照。
+    const rawCandidates = Array.isArray(editing.candidates) ? editing.candidates : [];
+    const seenCandIds = new Set();
+    let maximumCandNumber = 0;
+    const candidates = rawCandidates.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`候选 ${index + 1} 无效。`);
+      const id = String(entry.id || `cand-${index + 1}`);
+      if (seenCandIds.has(id)) throw new Error(`候选 ID 重复：${id}。`);
+      seenCandIds.add(id);
+      const match = /^cand-(\d+)$/.exec(id);
+      if (match) maximumCandNumber = Math.max(maximumCandNumber, Number(match[1]));
+      return {
+        id,
+        label: String(entry.label || `候选 ${index + 1}`),
+        notes: Array.isArray(entry.notes) ? entry.notes.map(note => ({ ...note })) : [],
+        syllables: Array.isArray(entry.syllables) ? entry.syllables.map(syl => ({ ...syl })) : [],
+        breathMarks: Array.isArray(entry.breath_marks) ? entry.breath_marks.map(mark => ({ ...mark })) : [],
+        createdAt: finiteNumber(entry.created_at, Date.now()),
+      };
+    });
+    state.candidates = candidates;
+    state.nextCandidateId = Math.max(1, maximumCandNumber + 1);
+    state.selectedCandidateId = null;
+    state.compareCandidateId = null;
+    // P4：加载和声轨（0.4.0 项目）。
+    const rawHarmonyTracks = Array.isArray(editing.harmony_tracks) ? editing.harmony_tracks : [];
+    const seenHarmonyIds = new Set();
+    let maximumHarmonyNumber = 0;
+    const harmonyTracks = rawHarmonyTracks.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`和声轨 ${index + 1} 无效。`);
+      const id = String(entry.id || `harmony-${index + 1}`);
+      if (seenHarmonyIds.has(id)) throw new Error(`和声轨 ID 重复：${id}。`);
+      seenHarmonyIds.add(id);
+      const match = /^harmony-(\d+)$/.exec(id);
+      if (match) maximumHarmonyNumber = Math.max(maximumHarmonyNumber, Number(match[1]));
+      return {
+        id,
+        name: String(entry.name || `和声 ${index + 1}`),
+        mute: Boolean(entry.mute),
+        solo: Boolean(entry.solo),
+        gain: clamp(finiteNumber(entry.gain, 1.0), 0, 1.5),
+      };
+    });
+    state.harmonyTracks = harmonyTracks;
+    state.nextHarmonyTrackId = Math.max(1, maximumHarmonyNumber + 1);
+    state.selectedHarmonyTrackId = null;
+    // P4：补全 breath / param-curve 锁定验证（在 P4 数据加载后）。
+    const validBreathIds = new Set(state.breathMarks.map(m => m.id));
+    const validCurveIds = new Set(state.paramCurves.map(c => c.id));
+    rawLocked.forEach(entry => {
+      if (typeof entry !== "string") return;
+      const colonIndex = entry.indexOf(":");
+      if (colonIndex < 0) return;
+      const type = entry.slice(0, colonIndex);
+      const id = entry.slice(colonIndex + 1);
+      if (type === "breath" && validBreathIds.has(id)) state.lockedFields.add(entry);
+      else if (type === "param-curve" && validCurveIds.has(id)) state.lockedFields.add(entry);
+    });
     // 0.2.0 项目没有 syllables 字段：为所有歌词区域派生默认 syllables。
     // 这是 0.2.0 → 0.3.0 的自动迁移（不记 undo，是导入的一部分）。
     // 0.3.0 项目正常情况下 syllables 与 lyrics 同步；若因数据损坏导致 syllables 为空但 lyrics 存在，
@@ -3467,6 +3761,22 @@
     state.syllables = [];
     state.nextSyllableId = 1;
     state.selectedSyllableId = null;
+    // P4：0.1.0 项目没有 breath_marks / param_curves / candidates / harmony_tracks 字段；
+    // 迁移到 0.4.0 时清空，保持向前兼容。
+    state.breathMarks = [];
+    state.nextBreathId = 1;
+    state.selectedBreathId = null;
+    state.paramCurves = [];
+    state.nextParamCurveId = 1;
+    state.selectedParamCurveId = null;
+    state.activeParamKind = "pitch";
+    state.candidates = [];
+    state.nextCandidateId = 1;
+    state.selectedCandidateId = null;
+    state.compareCandidateId = null;
+    state.harmonyTracks = [];
+    state.nextHarmonyTrackId = 1;
+    state.selectedHarmonyTrackId = null;
 
     let previousEndAnchorId = null;
     sortedLegacy.forEach((legacy, index) => {
@@ -3534,10 +3844,11 @@
 
   async function importProject(file) {
     const candidate = await readJsonFile(file);
-    // P2：支持 0.3.0（当前）、0.2.0（自动迁移派生 syllables）、0.1.0（深度迁移）。
+    // P4：支持 0.4.0（当前）、0.3.0（自动迁移空 P4 字段）、0.2.0（自动迁移派生 syllables）、0.1.0（深度迁移）。
     if (candidate.schema_version !== PROJECT_SCHEMA
         && candidate.schema_version !== PROJECT_SCHEMA_LEGACY
-        && candidate.schema_version !== PROJECT_SCHEMA_LEGACY_020) {
+        && candidate.schema_version !== PROJECT_SCHEMA_LEGACY_020
+        && candidate.schema_version !== PROJECT_SCHEMA_LEGACY_030) {
       throw new Error(`不支持的项目版本：${String(candidate.schema_version || "缺失")}。`);
     }
     const analysis = validateAnalysis(candidate.analysis);
@@ -3548,7 +3859,7 @@
       // 0.1.0 项目：把秒数边界迁移到共享 anchor 模型，并派生默认 syllables。
       const { selection } = migrateLegacyProject(candidate, analysis);
       setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
-      setStatus("已导入 0.1.0 项目并迁移到 0.3.0 共享 anchor + syllable 模型；请重新选择本地 WAV 才能播放。", "success");
+      setStatus("已导入 0.1.0 项目并迁移到 0.4.0 共享 anchor + syllable 模型；请重新选择本地 WAV 才能播放。", "success");
     } else if (candidate.schema_version === PROJECT_SCHEMA_LEGACY_020) {
       // 0.2.0 项目：直接加载 anchor 与 region，并为已有歌词派生默认 syllables。
       // 注意 importAnchorsAndRegions 内部已处理 editing.preferences 与 syllables 派生，这里只取 selection。
@@ -3556,9 +3867,17 @@
       const editing = candidate.editing || {};
       const selection = editing.selection || {};
       setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
-      setStatus("已导入 0.2.0 项目并迁移到 0.3.0；已为歌词区域派生默认音节切分，请重新选择本地 WAV 才能播放。", "success");
+      setStatus("已导入 0.2.0 项目并迁移到 0.4.0；已为歌词区域派生默认音节切分，请重新选择本地 WAV 才能播放。", "success");
+    } else if (candidate.schema_version === PROJECT_SCHEMA_LEGACY_030) {
+      // 0.3.0 项目：直接加载 anchor 与 region + syllables；P4 字段缺失时为空数组（自动迁移）。
+      // 注意 importAnchorsAndRegions 内部已处理 editing.preferences，这里只取 selection。
+      importAnchorsAndRegions(candidate, analysis);
+      const editing = candidate.editing || {};
+      const selection = editing.selection || {};
+      setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
+      setStatus("已导入 0.3.0 项目并迁移到 0.4.0；P4 字段（呼吸标记/参数曲线/候选/和声轨）为空，请重新选择本地 WAV 才能播放。", "success");
     } else {
-      // 0.3.0 项目：直接加载 anchor 与 region + syllables。
+      // 0.4.0 项目：直接加载 anchor 与 region + syllables + P4 字段。
       // 注意 importAnchorsAndRegions 内部已处理 editing.preferences，这里只取 selection。
       importAnchorsAndRegions(candidate, analysis);
       const editing = candidate.editing || {};
@@ -4716,6 +5035,689 @@
       editGraph.begin(`锁定读音 ${id}`);
       setLocked("syllable", id, elements.lockSyllableCheckbox.checked);
       setStatus(elements.lockSyllableCheckbox.checked ? `已锁定音节 ${id}。` : `已解锁音节 ${id}。`, "success");
+    });
+  }
+
+  // ==== P4：呼吸标记 / 参数曲线 / 候选比较 / 和声轨 ============================
+  // 设计目标：
+  //   - 各能力可独立运行、独立撤销（每次操作前 editGraph.begin 保存快照）。
+  //   - 在局部锁定下重新生成：breath / param-curve 加入 lockedFields，与现有锁定机制一致。
+  //   - 项目持久化：P4 字段随 0.4.0 schema 保存/加载；0.3.0/0.2.0/0.1.0 项目自动迁移到 0.4.0。
+  //   - 不直接注入 HTML：所有 DOM 操作用 textContent / appendChild。
+
+  // ---- P4-1：呼吸标记 --------------------------------------------------------
+  // 在选中音符末尾添加呼吸标记：anchor 复用音符 endAnchor（位置即"音符末尾"）。
+  function addBreathMarkAtSelectedNote() {
+    if (!state.selectedNoteId) {
+      setStatus("请先在钢琴卷帘选中一个音符，再添加呼吸标记。", "error");
+      return;
+    }
+    const note = state.notes.find(item => item.id === state.selectedNoteId);
+    if (!note) return;
+    if (isLocked("note-breath", note.id)) {
+      setStatus(`音符 ${note.id} 的呼吸标记已锁定，无法新增。`, "error");
+      return;
+    }
+    editGraph.begin(`新增呼吸标记于 ${note.id}`);
+    const mark = {
+      id: `breath-${state.nextBreathId++}`,
+      anchorId: note.endAnchorId,
+      intensity: 0.5,
+    };
+    state.breathMarks.push(mark);
+    state.selectedBreathId = mark.id;
+    pruneAnchors();
+    renderBreathLane();
+    renderBreathInspector();
+    setStatus(`已在音符 ${note.id} 末尾添加呼吸标记 ${mark.id}。`, "success");
+  }
+
+  function selectBreathMark(id) {
+    state.selectedBreathId = id;
+    renderBreathLane();
+    renderBreathInspector();
+  }
+
+  function deleteBreathMark(id) {
+    const mark = state.breathMarks.find(item => item.id === id);
+    if (!mark) return;
+    if (isLocked("breath", id)) {
+      setStatus(`呼吸标记 ${id} 已锁定，请先解锁再删除。`, "error");
+      return;
+    }
+    editGraph.begin(`删除呼吸标记 ${id}`);
+    state.breathMarks = state.breathMarks.filter(item => item.id !== id);
+    if (state.selectedBreathId === id) state.selectedBreathId = null;
+    setLocked("breath", id, false);
+    pruneAnchors();
+    renderBreathLane();
+    renderBreathInspector();
+    setStatus(`已删除呼吸标记 ${id}。`, "success");
+  }
+
+  function updateBreathIntensity(id, value) {
+    const mark = state.breathMarks.find(item => item.id === id);
+    if (!mark) return;
+    const clamped = clamp(finiteNumber(value, 0.5), 0, 1);
+    if (Math.abs(mark.intensity - clamped) < 1e-6) return;
+    editGraph.begin(`调整呼吸强度 ${id}`);
+    mark.intensity = clamped;
+    setStatus(`已更新呼吸标记 ${id} 的强度为 ${(clamped * 100).toFixed(0)}%。`, "success");
+    renderBreathLane();
+  }
+
+  // 渲染呼吸标记 lane：在时间轴上以竖线表示每个呼吸标记的位置。
+  function renderBreathLane() {
+    if (!elements.breathLane) return;
+    clearElement(elements.breathLane);
+    if (!state.breathMarks.length) {
+      const empty = document.createElement("span");
+      empty.className = "empty-lane";
+      empty.textContent = "选中音符后点击\"添加呼吸标记\"，在音符末尾放置呼吸位置";
+      elements.breathLane.appendChild(empty);
+      return;
+    }
+    state.breathMarks.forEach(mark => {
+      const anchor = state.anchors.get(mark.anchorId);
+      if (!anchor) return;
+      const seconds = sampleToSeconds(anchor.sample);
+      const block = document.createElement("button");
+      block.type = "button";
+      block.className = "timeline-block breath-mark";
+      block.dataset.breathId = mark.id;
+      block.textContent = "呼吸";
+      block.title = `${mark.id} · ${seconds.toFixed(3)} 秒 · 强度 ${(mark.intensity * 100).toFixed(0)}%${isLocked("breath", mark.id) ? " · 已锁定" : ""}`;
+      block.style.left = percentAt(seconds);
+      if (state.selectedBreathId === mark.id) block.classList.add("selected");
+      if (isLocked("breath", mark.id)) block.classList.add("locked");
+      block.addEventListener("click", () => selectBreathMark(mark.id));
+      elements.breathLane.appendChild(block);
+    });
+  }
+
+  function renderBreathInspector() {
+    if (!elements.breathInspector) return;
+    const id = state.selectedBreathId;
+    if (!id) {
+      elements.breathInspector.hidden = true;
+      return;
+    }
+    const mark = state.breathMarks.find(item => item.id === id);
+    if (!mark) {
+      elements.breathInspector.hidden = true;
+      state.selectedBreathId = null;
+      return;
+    }
+    elements.breathInspector.hidden = false;
+    const anchor = state.anchors.get(mark.anchorId);
+    const seconds = anchor ? sampleToSeconds(anchor.sample) : 0;
+    if (elements.breathDetail) {
+      elements.breathDetail.textContent = `${mark.id} · ${seconds.toFixed(3)} 秒 · 强度 ${(mark.intensity * 100).toFixed(0)}%`;
+    }
+    if (elements.breathIntensity) elements.breathIntensity.value = String(mark.intensity);
+    refreshLockToggle(elements.lockBreathWrapper, elements.lockBreathCheckbox, "breath", id);
+  }
+
+  // ---- P4-2：参数曲线 --------------------------------------------------------
+  // 选中音符后，用户可在 3 种曲线（pitch/dynamics/vibrato）之间切换，
+  // 点击曲线区添加控制点（tick + value）。
+  function setActiveParamKind(kind) {
+    if (!["pitch", "dynamics", "vibrato"].includes(kind)) return;
+    state.activeParamKind = kind;
+    renderParamCurvePanel();
+  }
+
+  function ensureParamCurve(noteId, kind) {
+    let curve = state.paramCurves.find(c => c.noteId === noteId && c.kind === kind);
+    if (!curve) {
+      curve = {
+        id: `curve-${state.nextParamCurveId++}`,
+        noteId,
+        kind,
+        points: [],
+      };
+      state.paramCurves.push(curve);
+    }
+    return curve;
+  }
+
+  function addParamPointToSelectedCurve() {
+    if (!state.selectedNoteId) {
+      setStatus("请先选中一个音符再添加参数控制点。", "error");
+      return;
+    }
+    const curve = ensureParamCurve(state.selectedNoteId, state.activeParamKind);
+    if (isLocked("param-curve", curve.id)) {
+      setStatus(`参数曲线 ${curve.id} 已锁定，请先解锁再修改。`, "error");
+      return;
+    }
+    editGraph.begin(`添加参数控制点 ${curve.id}`);
+    // 默认在 tick=0 处加控制点，value 由当前 kind 决定（pitch=0, dynamics/vibrato=0.5）。
+    const defaultValue = state.activeParamKind === "pitch" ? 0 : 0.5;
+    curve.points.push({ tick: 0, value: defaultValue });
+    state.selectedParamCurveId = curve.id;
+    renderParamCurvePanel();
+    setStatus(`已在 ${state.activeParamKind} 曲线添加控制点（共 ${curve.points.length} 个）。`, "success");
+  }
+
+  function updateParamPoint(curveId, pointIndex, value) {
+    const curve = state.paramCurves.find(c => c.id === curveId);
+    if (!curve || !curve.points[pointIndex]) return;
+    const clamped = state.activeParamKind === "pitch"
+      ? clamp(finiteNumber(value, 0), -1, 1)
+      : clamp(finiteNumber(value, 0.5), 0, 1);
+    if (Math.abs(curve.points[pointIndex].value - clamped) < 1e-6) return;
+    editGraph.begin(`调整参数控制点 ${curveId}`);
+    curve.points[pointIndex].value = clamped;
+    renderParamCurvePanel();
+  }
+
+  function deleteParamCurve(id) {
+    const curve = state.paramCurves.find(c => c.id === id);
+    if (!curve) return;
+    if (isLocked("param-curve", id)) {
+      setStatus(`参数曲线 ${id} 已锁定，请先解锁再删除。`, "error");
+      return;
+    }
+    editGraph.begin(`删除参数曲线 ${id}`);
+    state.paramCurves = state.paramCurves.filter(c => c.id !== id);
+    if (state.selectedParamCurveId === id) state.selectedParamCurveId = null;
+    setLocked("param-curve", id, false);
+    renderParamCurvePanel();
+    setStatus(`已删除参数曲线 ${id}。`, "success");
+  }
+
+  function selectParamCurve(id) {
+    state.selectedParamCurveId = id;
+    renderParamCurvePanel();
+  }
+
+  // 渲染参数曲线 panel：选中音符时显示当前 kind 的曲线与控制点列表。
+  function renderParamCurvePanel() {
+    if (!elements.paramCurvePanel) return;
+    if (!state.selectedNoteId) {
+      elements.paramCurvePanel.hidden = true;
+      return;
+    }
+    const note = state.notes.find(item => item.id === state.selectedNoteId);
+    if (!note) {
+      elements.paramCurvePanel.hidden = true;
+      return;
+    }
+    elements.paramCurvePanel.hidden = false;
+    // 同步 radio button 选中状态。
+    if (elements.paramCurveKindPitch) elements.paramCurveKindPitch.checked = state.activeParamKind === "pitch";
+    if (elements.paramCurveKindDynamics) elements.paramCurveKindDynamics.checked = state.activeParamKind === "dynamics";
+    if (elements.paramCurveKindVibrato) elements.paramCurveKindVibrato.checked = state.activeParamKind === "vibrato";
+    const curve = state.paramCurves.find(c => c.noteId === note.id && c.kind === state.activeParamKind);
+    if (elements.paramCurvePointList) {
+      clearElement(elements.paramCurvePointList);
+      if (!curve || !curve.points.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted small-note";
+        empty.textContent = "尚无控制点；点击\"添加控制点\"新建。";
+        elements.paramCurvePointList.appendChild(empty);
+      } else {
+        curve.points.forEach((point, index) => {
+          const row = document.createElement("div");
+          row.className = "param-curve-point";
+          row.dataset.pointIndex = String(index);
+          const idx = document.createElement("span");
+          idx.className = "param-curve-point-index";
+          idx.textContent = `#${index + 1}`;
+          const tick = document.createElement("span");
+          tick.className = "param-curve-point-tick";
+          tick.textContent = `tick ${point.tick}`;
+          const valueInput = document.createElement("input");
+          valueInput.type = "range";
+          valueInput.min = state.activeParamKind === "pitch" ? "-1" : "0";
+          valueInput.max = "1";
+          valueInput.step = "0.01";
+          valueInput.value = String(point.value);
+          valueInput.dataset.curveId = curve.id;
+          valueInput.dataset.pointIndex = String(index);
+          valueInput.dataset.paramField = "value";
+          const valueLabel = document.createElement("span");
+          valueLabel.className = "param-curve-point-value";
+          valueLabel.textContent = point.value.toFixed(2);
+          row.appendChild(idx);
+          row.appendChild(tick);
+          row.appendChild(valueInput);
+          row.appendChild(valueLabel);
+          elements.paramCurvePointList.appendChild(row);
+        });
+      }
+    }
+    if (elements.paramCurveCanvas) {
+      drawParamCurveCanvas(curve);
+    }
+    refreshLockToggle(elements.lockParamCurveWrapper, elements.lockParamCurveCheckbox, "param-curve", curve ? curve.id : null);
+  }
+
+  // 在 canvas 上绘制参数曲线（连接控制点）。
+  function drawParamCurveCanvas(curve) {
+    const canvas = elements.paramCurveCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const width = 320;
+    const height = 96;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const style = getComputedStyle(document.documentElement);
+    const surface = style.getPropertyValue("--surface-soft").trim() || "#f8f9fc";
+    const border = style.getPropertyValue("--border").trim() || "#d7dce5";
+    const accent = style.getPropertyValue("--accent").trim() || "#168c86";
+    ctx.fillStyle = surface;
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1;
+    // 中线（value=0）。
+    ctx.beginPath();
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+    if (!curve || !curve.points.length) {
+      ctx.fillStyle = accent;
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.fillText("尚无控制点", 8, height / 2 - 6);
+      return;
+    }
+    const points = curve.points.slice().sort((a, b) => a.tick - b.tick);
+    const minTick = Math.min(...points.map(p => p.tick));
+    const maxTick = Math.max(...points.map(p => p.tick));
+    const tickRange = Math.max(1, maxTick - minTick);
+    const valueRange = state.activeParamKind === "pitch" ? 2 : 1;
+    const valueOffset = state.activeParamKind === "pitch" ? 1 : 0;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      const x = ((point.tick - minTick) / tickRange) * (width - 16) + 8;
+      const norm = (point.value + valueOffset) / valueRange;
+      const y = height - 8 - norm * (height - 16);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    points.forEach(point => {
+      const x = ((point.tick - minTick) / tickRange) * (width - 16) + 8;
+      const norm = (point.value + valueOffset) / valueRange;
+      const y = height - 8 - norm * (height - 16);
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  // ---- P4-3：候选比较 --------------------------------------------------------
+  // 把当前 notes/syllables/breathMarks 深拷贝保存为一个候选快照。
+  function saveCurrentAsCandidate(label) {
+    const trimmed = String(label || "").trim();
+    if (!trimmed) {
+      setStatus("请输入候选标签。", "error");
+      return;
+    }
+    editGraph.begin(`保存候选 ${trimmed}`);
+    const candidate = {
+      id: `cand-${state.nextCandidateId++}`,
+      label: trimmed,
+      notes: state.notes.map(note => ({ ...note })),
+      syllables: state.syllables.map(syl => ({ ...syl })),
+      breathMarks: state.breathMarks.map(mark => ({ ...mark })),
+      createdAt: Date.now(),
+    };
+    state.candidates.push(candidate);
+    state.selectedCandidateId = candidate.id;
+    renderCandidateList();
+    setStatus(`已保存候选 ${candidate.id}（${trimmed}），共 ${state.candidates.length} 个候选。`, "success");
+  }
+
+  function loadCandidate(id) {
+    const cand = state.candidates.find(item => item.id === id);
+    if (!cand) return;
+    editGraph.begin(`加载候选 ${id}`);
+    state.notes = cand.notes.map(note => ({ ...note }));
+    state.syllables = cand.syllables.map(syl => ({ ...syl }));
+    state.breathMarks = cand.breathMarks.map(mark => ({ ...mark }));
+    state.selectedNoteId = null;
+    state.selectedSyllableId = null;
+    state.selectedBreathId = null;
+    pruneAnchors();
+    renderAll();
+    setStatus(`已加载候选 ${cand.label}（${id}）；当前编排已替换，可用撤销恢复。`, "success");
+  }
+
+  function compareWithCandidate(id) {
+    const cand = state.candidates.find(item => item.id === id);
+    if (!cand) return;
+    state.compareCandidateId = id;
+    renderCandidateCompareSummary();
+    setStatus(`已切换到与候选 ${cand.label}（${id}）的比较视图。`, "success");
+  }
+
+  function deleteCandidate(id) {
+    const cand = state.candidates.find(item => item.id === id);
+    if (!cand) return;
+    editGraph.begin(`删除候选 ${id}`);
+    state.candidates = state.candidates.filter(item => item.id !== id);
+    if (state.selectedCandidateId === id) state.selectedCandidateId = null;
+    if (state.compareCandidateId === id) state.compareCandidateId = null;
+    renderCandidateList();
+    renderCandidateCompareSummary();
+    setStatus(`已删除候选 ${cand.label}（${id}）。`, "success");
+  }
+
+  function renderCandidateList() {
+    if (!elements.candidateList) return;
+    clearElement(elements.candidateList);
+    if (!state.candidates.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted small-note";
+      empty.textContent = "尚未保存候选；输入标签后点击\"保存当前为候选\"。";
+      elements.candidateList.appendChild(empty);
+      return;
+    }
+    state.candidates.forEach(cand => {
+      const row = document.createElement("div");
+      row.className = "candidate-row";
+      row.dataset.candidateId = cand.id;
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "candidate-label";
+      labelSpan.textContent = cand.label;
+      const meta = document.createElement("span");
+      meta.className = "candidate-meta muted small-note";
+      const date = new Date(cand.createdAt);
+      const time = Number.isFinite(date.getTime()) ? date.toLocaleString("zh-CN") : "—";
+      meta.textContent = `${cand.id} · ${cand.notes.length} 音符 · ${cand.syllables.length} 音节 · ${cand.breathMarks.length} 呼吸 · ${time}`;
+      const actions = document.createElement("div");
+      actions.className = "candidate-actions button-row";
+      const loadBtn = document.createElement("button");
+      loadBtn.type = "button";
+      loadBtn.textContent = "加载此候选";
+      loadBtn.dataset.candidateAction = "load";
+      loadBtn.dataset.candidateId = cand.id;
+      const compareBtn = document.createElement("button");
+      compareBtn.type = "button";
+      compareBtn.textContent = "与此候选比较";
+      compareBtn.dataset.candidateAction = "compare";
+      compareBtn.dataset.candidateId = cand.id;
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "danger";
+      deleteBtn.textContent = "删除";
+      deleteBtn.dataset.candidateAction = "delete";
+      deleteBtn.dataset.candidateId = cand.id;
+      actions.appendChild(loadBtn);
+      actions.appendChild(compareBtn);
+      actions.appendChild(deleteBtn);
+      row.appendChild(labelSpan);
+      row.appendChild(meta);
+      row.appendChild(actions);
+      if (state.selectedCandidateId === cand.id) row.classList.add("selected");
+      if (state.compareCandidateId === cand.id) row.classList.add("comparing");
+      elements.candidateList.appendChild(row);
+    });
+  }
+
+  function renderCandidateCompareSummary() {
+    if (!elements.candidateCompareSummary) return;
+    if (!state.compareCandidateId) {
+      elements.candidateCompareSummary.textContent = "";
+      return;
+    }
+    const cand = state.candidates.find(item => item.id === state.compareCandidateId);
+    if (!cand) {
+      elements.candidateCompareSummary.textContent = "";
+      return;
+    }
+    const currentNotes = state.notes.length;
+    const candNotes = cand.notes.length;
+    const currentBreath = state.breathMarks.length;
+    const candBreath = cand.breathMarks.length;
+    const currentPitches = state.notes.map(n => n.pitch);
+    const candPitches = cand.notes.map(n => n.pitch);
+    const currentMin = currentPitches.length ? Math.min(...currentPitches) : null;
+    const currentMax = currentPitches.length ? Math.max(...currentPitches) : null;
+    const candMin = candPitches.length ? Math.min(...candPitches) : null;
+    const candMax = candPitches.length ? Math.max(...candPitches) : null;
+    const fmtRange = (min, max) => (min === null ? "无" : `${midiToNoteName(min)}–${midiToNoteName(max)}`);
+    const diff = (a, b) => (a === b ? "相同" : `差 ${a - b > 0 ? "+" : ""}${a - b}`);
+    elements.candidateCompareSummary.textContent =
+      `当前 vs 候选「${cand.label}」：音符 ${currentNotes}/${candNotes}（${diff(currentNotes, candNotes)}）` +
+      ` · 音高范围 ${fmtRange(currentMin, currentMax)}/${fmtRange(candMin, candMax)}` +
+      ` · 呼吸标记 ${currentBreath}/${candBreath}（${diff(currentBreath, candBreath)}）`;
+  }
+
+  // ---- P4-4：和声轨 ----------------------------------------------------------
+  function createHarmonyTrack(name) {
+    const trimmed = String(name || "").trim();
+    const label = trimmed || `和声 ${state.harmonyTracks.length + 1}`;
+    editGraph.begin(`新增和声轨 ${label}`);
+    const track = {
+      id: `harmony-${state.nextHarmonyTrackId++}`,
+      name: label,
+      mute: false,
+      solo: false,
+      gain: 1.0,
+    };
+    state.harmonyTracks.push(track);
+    state.selectedHarmonyTrackId = track.id;
+    renderHarmonyTrackSelector();
+    setStatus(`已创建和声轨 ${track.id}（${label}）；可在钢琴卷帘中选定该轨编辑音符。`, "success");
+  }
+
+  function deleteHarmonyTrack(id) {
+    const track = state.harmonyTracks.find(item => item.id === id);
+    if (!track) return;
+    // 删除和声轨时一并删除其上的音符（source="harmony" 或 stemId === id）。
+    const affectedNotes = state.notes.filter(n => n.stemId === id || n.source === "harmony");
+    editGraph.begin(`删除和声轨 ${id}`);
+    state.notes = state.notes.filter(n => n.stemId !== id && n.source !== "harmony");
+    state.harmonyTracks = state.harmonyTracks.filter(item => item.id !== id);
+    if (state.selectedHarmonyTrackId === id) state.selectedHarmonyTrackId = null;
+    if (state.pianoRollStemId === id) {
+      state.pianoRollStemId = "master";
+      if (elements.pianoRollStemSelect) elements.pianoRollStemSelect.value = "master";
+    }
+    pruneAnchors();
+    renderHarmonyTrackSelector();
+    renderPianoRoll();
+    setStatus(`已删除和声轨 ${track.name}（${id}）及其 ${affectedNotes.length} 个音符。`, "success");
+  }
+
+  function selectHarmonyTrack(id) {
+    state.selectedHarmonyTrackId = id;
+    if (id && elements.pianoRollStemSelect) {
+      // 选中和声轨后，钢琴卷帘目标 stem 切换到该和声轨。
+      state.pianoRollStemId = id;
+      elements.pianoRollStemSelect.value = id;
+      updatePianoRollToolButtons();
+    }
+    renderHarmonyTrackSelector();
+  }
+
+  function updateHarmonyTrack(id, field, value) {
+    const track = state.harmonyTracks.find(item => item.id === id);
+    if (!track) return;
+    let clamped;
+    if (field === "mute" || field === "solo") {
+      clamped = Boolean(value);
+    } else if (field === "gain") {
+      clamped = clamp(finiteNumber(value, 1.0), 0, 1.5);
+    } else {
+      return;
+    }
+    if (field === "gain" && Math.abs(track.gain - clamped) < 1e-6) return;
+    if ((field === "mute" || field === "solo") && track[field] === clamped) return;
+    editGraph.begin(`调整和声轨 ${id} ${field}`);
+    track[field] = clamped;
+    renderHarmonyTrackSelector();
+    setStatus(`已更新和声轨 ${track.name}（${id}）的 ${field}。`, "success");
+  }
+
+  function renderHarmonyTrackSelector() {
+    if (!elements.harmonyTrackSelect) return;
+    const select = elements.harmonyTrackSelect;
+    const prev = state.selectedHarmonyTrackId;
+    clearElement(select);
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = state.harmonyTracks.length ? "（选择和声轨）" : "（无和声轨）";
+    select.appendChild(placeholder);
+    state.harmonyTracks.forEach(track => {
+      const opt = document.createElement("option");
+      opt.value = track.id;
+      const muteTag = track.mute ? " · 静音" : "";
+      const soloTag = track.solo ? " · 独奏" : "";
+      opt.textContent = `${track.name}（${track.id}）${muteTag}${soloTag}`;
+      select.appendChild(opt);
+    });
+    select.value = prev || "";
+    // 同步 mute/solo/gain 控件到选中轨。
+    const track = state.harmonyTracks.find(t => t.id === state.selectedHarmonyTrackId);
+    if (elements.harmonyTrackMute) {
+      elements.harmonyTrackMute.disabled = !track;
+      if (track) {
+        elements.harmonyTrackMute.setAttribute("aria-pressed", String(track.mute));
+        elements.harmonyTrackMute.textContent = track.mute ? "已静音" : "静音";
+      }
+    }
+    if (elements.harmonyTrackSolo) {
+      elements.harmonyTrackSolo.disabled = !track;
+      if (track) {
+        elements.harmonyTrackSolo.setAttribute("aria-pressed", String(track.solo));
+        elements.harmonyTrackSolo.textContent = track.solo ? "独奏中" : "独奏";
+      }
+    }
+    if (elements.harmonyTrackGain) {
+      elements.harmonyTrackGain.disabled = !track;
+      if (track) elements.harmonyTrackGain.value = String(track.gain);
+    }
+  }
+
+  // ---- P4 事件绑定 -----------------------------------------------------------
+  // 呼吸标记：钢琴卷帘"添加呼吸标记"按钮、inspector 强度滑块 / 删除 / 锁定。
+  if (elements.addBreathButton) {
+    elements.addBreathButton.addEventListener("click", () => addBreathMarkAtSelectedNote());
+  }
+  if (elements.breathIntensity) {
+    elements.breathIntensity.addEventListener("input", () => {
+      if (state.selectedBreathId) updateBreathIntensity(state.selectedBreathId, elements.breathIntensity.value);
+    });
+  }
+  if (elements.deleteBreathButton) {
+    elements.deleteBreathButton.addEventListener("click", () => {
+      if (state.selectedBreathId) deleteBreathMark(state.selectedBreathId);
+    });
+  }
+  if (elements.lockBreathCheckbox) {
+    elements.lockBreathCheckbox.addEventListener("change", () => {
+      const id = state.selectedBreathId;
+      if (!id) return;
+      editGraph.begin(`锁定呼吸 ${id}`);
+      setLocked("breath", id, elements.lockBreathCheckbox.checked);
+      setStatus(elements.lockBreathCheckbox.checked ? `已锁定呼吸标记 ${id}。` : `已解锁呼吸标记 ${id}。`, "success");
+      renderBreathLane();
+    });
+  }
+  // 参数曲线：radio 切换 / 添加控制点 / 控制点 value 拖动 / 删除曲线 / 锁定。
+  if (elements.paramCurveKindPitch) {
+    elements.paramCurveKindPitch.addEventListener("change", () => setActiveParamKind("pitch"));
+  }
+  if (elements.paramCurveKindDynamics) {
+    elements.paramCurveKindDynamics.addEventListener("change", () => setActiveParamKind("dynamics"));
+  }
+  if (elements.paramCurveKindVibrato) {
+    elements.paramCurveKindVibrato.addEventListener("change", () => setActiveParamKind("vibrato"));
+  }
+  if (elements.addParamPointButton) {
+    elements.addParamPointButton.addEventListener("click", () => addParamPointToSelectedCurve());
+  }
+  if (elements.deleteParamCurveButton) {
+    elements.deleteParamCurveButton.addEventListener("click", () => {
+      if (state.selectedParamCurveId) deleteParamCurve(state.selectedParamCurveId);
+    });
+  }
+  if (elements.paramCurvePointList) {
+    elements.paramCurvePointList.addEventListener("input", event => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.dataset.paramField !== "value") return;
+      const curveId = target.dataset.curveId;
+      const pointIndex = Number(target.dataset.pointIndex);
+      if (!curveId || !Number.isFinite(pointIndex)) return;
+      updateParamPoint(curveId, pointIndex, target.value);
+    });
+  }
+  if (elements.lockParamCurveCheckbox) {
+    elements.lockParamCurveCheckbox.addEventListener("change", () => {
+      const id = state.selectedParamCurveId;
+      if (!id) return;
+      editGraph.begin(`锁定参数曲线 ${id}`);
+      setLocked("param-curve", id, elements.lockParamCurveCheckbox.checked);
+      setStatus(elements.lockParamCurveCheckbox.checked ? `已锁定参数曲线 ${id}。` : `已解锁参数曲线 ${id}。`, "success");
+      renderParamCurvePanel();
+    });
+  }
+  // 候选比较：保存 / 列表事件（load / compare / delete）。
+  if (elements.saveCandidateButton) {
+    elements.saveCandidateButton.addEventListener("click", () => {
+      const label = elements.candidateLabelInput ? elements.candidateLabelInput.value : "";
+      saveCurrentAsCandidate(label);
+      if (elements.candidateLabelInput) elements.candidateLabelInput.value = "";
+    });
+  }
+  if (elements.candidateList) {
+    elements.candidateList.addEventListener("click", event => {
+      const button = event.target.closest("button[data-candidate-action]");
+      if (!button) return;
+      const action = button.dataset.candidateAction;
+      const id = button.dataset.candidateId;
+      if (!id) return;
+      if (action === "load") loadCandidate(id);
+      else if (action === "compare") compareWithCandidate(id);
+      else if (action === "delete") deleteCandidate(id);
+    });
+  }
+  // 和声轨：新增 / 删除 / 选择 / mute / solo / gain。
+  if (elements.addHarmonyTrackButton) {
+    elements.addHarmonyTrackButton.addEventListener("click", () => createHarmonyTrack(""));
+  }
+  if (elements.deleteHarmonyTrackButton) {
+    elements.deleteHarmonyTrackButton.addEventListener("click", () => {
+      if (state.selectedHarmonyTrackId) deleteHarmonyTrack(state.selectedHarmonyTrackId);
+    });
+  }
+  if (elements.harmonyTrackSelect) {
+    elements.harmonyTrackSelect.addEventListener("change", () => {
+      selectHarmonyTrack(elements.harmonyTrackSelect.value || null);
+    });
+  }
+  if (elements.harmonyTrackMute) {
+    elements.harmonyTrackMute.addEventListener("click", () => {
+      if (state.selectedHarmonyTrackId) {
+        const track = state.harmonyTracks.find(t => t.id === state.selectedHarmonyTrackId);
+        if (track) updateHarmonyTrack(track.id, "mute", !track.mute);
+      }
+    });
+  }
+  if (elements.harmonyTrackSolo) {
+    elements.harmonyTrackSolo.addEventListener("click", () => {
+      if (state.selectedHarmonyTrackId) {
+        const track = state.harmonyTracks.find(t => t.id === state.selectedHarmonyTrackId);
+        if (track) updateHarmonyTrack(track.id, "solo", !track.solo);
+      }
+    });
+  }
+  if (elements.harmonyTrackGain) {
+    elements.harmonyTrackGain.addEventListener("input", () => {
+      if (state.selectedHarmonyTrackId) {
+        updateHarmonyTrack(state.selectedHarmonyTrackId, "gain", elements.harmonyTrackGain.value);
+      }
     });
   }
 

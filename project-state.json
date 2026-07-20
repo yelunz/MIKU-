@@ -2,9 +2,9 @@
   "schema_version": 1,
   "project_name": "Miku 歌姬解放计划",
   "working_title": true,
-  "phase": "v0.5.3-p5-onboarding-example-project",
+  "phase": "v0.6.0-p4-full-arrangement",
   "status": "in-progress",
-  "last_updated": "2026-07-21T10:30:00+08:00",
+  "last_updated": "2026-07-21T11:00:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -81,9 +81,10 @@
       "entrypoint": "prototype/web-workbench/index.html",
       "runtime": "standards-browser-no-build",
       "analysis_schema": "0.1.0",
-      "project_schema": "miku-workbench-project/0.3.0",
+      "project_schema": "miku-workbench-project/0.4.0",
       "project_schema_legacy": "miku-workbench-project/0.1.0",
       "project_schema_legacy_020": "miku-workbench-project/0.2.0",
+      "project_schema_legacy_030": "miku-workbench-project/0.3.0",
       "legacy_migration": "automatic-on-import",
       "time_model": {
         "audio_authority": "integer-sample",
@@ -92,7 +93,7 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p5-onboarding-example-project",
+      "status": "runnable-interaction-prototype-p4-full-arrangement",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4-1-8-and-triplet",
@@ -121,7 +122,12 @@
         "project-schema-0.3.0-with-0.2.0-and-0.1.0-automatic-migration",
         "p5-onboarding-panel-with-localstorage-first-visit-detection-and-skip-toggle",
         "p5-load-example-project-button-loads-librosa-analysis-v2-with-integration-fixture-fallback",
-        "p5-onboarding-js-iife-module-coordinates-with-app-js-via-customevent"
+        "p5-onboarding-js-iife-module-coordinates-with-app-js-via-customevent",
+        "p4-breath-marks-with-anchor-reference-intensity-and-lock-with-undo-and-persistence",
+        "p4-param-curves-pitch-dynamics-vibrato-with-control-points-canvas-and-lock",
+        "p4-candidate-comparison-with-save-load-compare-delete-and-deep-copy-snapshot",
+        "p4-harmony-tracks-with-create-delete-select-mute-solo-gain-and-source-harmony-notes",
+        "p4-project-schema-0.4.0-with-0.3.0-0.2.0-0.1.0-automatic-migration"
       ],
       "verified_environment": "windows-edge"
     },
@@ -257,6 +263,9 @@
     "fixtures/basic-c-major-120-v1/librosa-analysis-v2.json"
   ],
   "next_actions": [
+    "p4-real-browser-regression-on-breath-marks-param-curves-candidates-and-harmony-tracks",
+    "p4-verify-0.3.0-project-import-auto-migrates-to-0.4.0-with-empty-p4-fields",
+    "p4-connect-breath-marks-and-param-curves-to-engine-adapters-midi-ustx-synthv-vocaloid6",
     "p5-real-browser-regression-on-onboarding-first-visit-display-skip-load-example-and-dont-show-again-toggle",
     "p5-verify-example-project-loads-librosa-analysis-v2-and-associates-wav-when-running-from-prototype-web-workbench-index-html",
     "rebuild-miku-workbench-0.5.0-win-x64-nsis-user-cancelled-dist-command-twice-in-sandbox-code-layer-complete-but-installer-not-yet-regenerated",
