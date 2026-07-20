@@ -280,6 +280,62 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         # 0.1.0 迁移时清空锁定
         self.assertIn("0.1.0 项目没有锁定字段概念", self.javascript)
 
+    def test_stem_mixer_data_model_and_ui_are_present(self) -> None:
+        # stem 轨数据模型：默认 stem 集（master/drums/bass/other）
+        self.assertIn("state.stemTracks", self.javascript)
+        self.assertIn("defaultStemTracks", self.javascript)
+        self.assertIn('"master"', self.javascript)
+        self.assertIn('"drums"', self.javascript)
+        self.assertIn('"bass"', self.javascript)
+        self.assertIn('"other"', self.javascript)
+        # 每个 stem 字段：mute / solo / gain / pan / source
+        self.assertIn("track.mute", self.javascript)
+        self.assertIn("track.solo", self.javascript)
+        self.assertIn("track.gain", self.javascript)
+        self.assertIn("track.pan", self.javascript)
+        self.assertIn('source: "main"', self.javascript)
+        self.assertIn('source: "placeholder"', self.javascript)
+        # Web Audio API 节点图：master stem 真实生效 gain/pan/mute/solo
+        self.assertIn("audioGraph", self.javascript)
+        self.assertIn("setupAudioGraph", self.javascript)
+        self.assertIn("createMediaElementSource", self.javascript)
+        self.assertIn("createGain", self.javascript)
+        self.assertIn("createStereoPanner", self.javascript)
+        self.assertIn("resumeAudioContext", self.javascript)
+        # 混音逻辑：solo 优先、mute 屏蔽、effective gain/pan 计算
+        self.assertIn("applyStemMix", self.javascript)
+        self.assertIn("stemEffectiveState", self.javascript)
+        self.assertIn("anySolo", self.javascript)
+        # 渲染：HTML 容器 + JS 渲染函数 + 行构建函数
+        self.assertIn('id="stem-mixer"', self.html)
+        self.assertIn("stemMixer", self.javascript)
+        self.assertIn("renderStemMixer", self.javascript)
+        self.assertIn("buildStemRow", self.javascript)
+        self.assertIn('data-stem-control="mute"', self.javascript)
+        self.assertIn('data-stem-control="solo"', self.javascript)
+        self.assertIn('data-stem-control="gain"', self.javascript)
+        self.assertIn('data-stem-control="pan"', self.javascript)
+        # 撤销/重做快照包含 stem 轨
+        self.assertIn("stemTracks: state.stemTracks.map(track", self.javascript)
+        self.assertIn("snapshot.stemTracks", self.javascript)
+        # 项目导入/导出包含 stem_tracks
+        self.assertIn("stem_tracks: state.stemTracks.map", self.javascript)
+        self.assertIn("editing.stem_tracks", self.javascript)
+        # 0.1.0 项目迁移时回退到默认 stem
+        self.assertIn("0.1.0 项目没有 stem_tracks 字段", self.javascript)
+        # 事件绑定：mute/solo 点击、gain/pan input/change
+        self.assertIn("elements.stemMixer.addEventListener", self.javascript)
+        # 第一次播放时初始化 audio graph（autoplay 政策）
+        self.assertIn("setupAudioGraph()", self.javascript)
+        self.assertIn("resumeAudioContext()", self.javascript)
+        # CSS 样式
+        self.assertIn(".stem-mixer-card", self.styles)
+        self.assertIn(".stem-row", self.styles)
+        self.assertIn(".stem-controls", self.styles)
+        self.assertIn(".stem-master", self.styles)
+        self.assertIn(".stem-placeholder", self.styles)
+
+
 
 if __name__ == "__main__":
     unittest.main()

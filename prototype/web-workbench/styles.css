@@ -98,6 +98,30 @@ kbd { display: inline-block; border: 1px solid var(--border); border-bottom-widt
 .layer-toolbar label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; }
 .layer-toolbar input { width: auto; }
 
+.stem-mixer-card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.85rem; box-shadow: var(--shadow); padding: 1rem 1.1rem 1.1rem; }
+.stem-mixer-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.85rem; }
+.stem-mixer-header .subtitle { font-size: 0.82rem; line-height: 1.5; max-width: 56ch; }
+.stem-mixer { display: grid; gap: 0.55rem; }
+.stem-row { display: grid; grid-template-columns: minmax(9rem, 11rem) minmax(0, 1fr); gap: 0.85rem; align-items: center; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: 0.6rem; background: var(--surface-soft); transition: border-color 0.15s ease; }
+.stem-row.muted { opacity: 0.62; border-style: dashed; }
+.stem-row.soloed { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 35%, var(--surface-soft)); }
+.stem-row.stem-master { border-inline-start: 4px solid var(--accent); }
+.stem-row.stem-placeholder { border-inline-start: 4px dashed color-mix(in srgb, var(--muted) 45%, var(--border)); }
+.stem-header { display: grid; gap: 0.18rem; min-width: 0; }
+.stem-name { font-weight: 650; font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stem-role { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.stem-controls { display: grid; grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 0.7rem; }
+.stem-controls button { min-width: 4rem; padding: 0.4rem 0.6rem; font-size: 0.74rem; border-radius: 0.45rem; }
+.stem-controls button.active { background: color-mix(in srgb, var(--accent) 80%, var(--surface)); color: #fff; border-color: var(--accent); }
+.stem-controls button[data-stem-control="solo"].active { background: color-mix(in srgb, var(--violet) 80%, var(--surface)); border-color: var(--violet); }
+.stem-slider { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.7rem; }
+.stem-slider input { width: 100%; padding: 0; }
+.stem-caption { font-weight: 650; min-width: 2.2rem; }
+.stem-value { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.68rem; min-width: 2.4rem; text-align: right; }
+.stem-status { font-size: 0.66rem; color: var(--muted); padding: 0.2rem 0.45rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--surface); white-space: nowrap; }
+.stem-row.muted .stem-status { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); }
+.stem-mixer-footnote { margin: 0.7rem 0 0; color: var(--muted); font-size: 0.72rem; line-height: 1.55; }
+
 .timeline-layout { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 0.85rem; align-items: start; }
 .timeline-card { min-width: 0; overflow: hidden; }
 .timeline-scroll { overflow-x: auto; padding: 0.8rem; }

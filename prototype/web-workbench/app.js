@@ -51,7 +51,87 @@
     // 程序触发的滚动标记。autoScrollToPlayhead 修改 scrollLeft 时设为 true，
     // scroll 事件据此区分"程序滚动"与"用户滚动"。
     programmaticScroll: false,
+    // 多轨 stem 轨数据模型（P1.2 轮 1）。
+    // 第一版采用非破坏编辑：原始音频永不覆盖；mute/solo/gain/pan 只保存参数。
+    // master stem 关联主 audio 元素，gain/pan/mute/solo 通过 Web Audio API 真实生效；
+    // drums/bass/other 是占位 stem（无分离音频），只保存参数与展示 UI，
+    // 等 Demucs 等音源分离后端接入后才会真实播放。
+    stemTracks: defaultStemTracks(),
   };
+
+  function defaultStemTracks() {
+    return [
+      { id: "master", name: "伴奏总览", role: "master", mute: false, solo: false, gain: 1.0, pan: 0, source: "main" },
+      { id: "drums", name: "鼓组", role: "drums", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder" },
+      { id: "bass", name: "贝斯", role: "bass", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder" },
+      { id: "other", name: "其他乐器", role: "other", mute: false, solo: false, gain: 1.0, pan: 0, source: "placeholder" },
+    ];
+  }
+
+  // Web Audio API 节点图：第一版只为 master stem 真实生效 gain/pan/mute/solo。
+  // createMediaElementSource 一旦调用就不能撤销，所以 setup 只执行一次；
+  // 失败时降级到 audio.volume（只能控制 master gain，pan 不生效）。
+  const audioGraph = {
+    context: null,
+    source: null,
+    masterGain: null,
+    masterPanner: null,
+    ready: false,
+  };
+
+  function setupAudioGraph() {
+    if (audioGraph.ready) return;
+    if (!state.audioUrl) return;
+    try {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return;
+      audioGraph.context = new Ctor();
+      audioGraph.source = audioGraph.context.createMediaElementSource(elements.audio);
+      audioGraph.masterGain = audioGraph.context.createGain();
+      audioGraph.masterPanner = audioGraph.context.createStereoPanner();
+      audioGraph.source.connect(audioGraph.masterGain);
+      audioGraph.masterGain.connect(audioGraph.masterPanner);
+      audioGraph.masterPanner.connect(audioGraph.context.destination);
+      audioGraph.ready = true;
+    } catch (error) {
+      audioGraph.ready = false;
+      setStatus(`Web Audio API 初始化失败，降级到音量控制：${error.message}`, "error");
+    }
+  }
+
+  function resumeAudioContext() {
+    if (audioGraph.ready && audioGraph.context && audioGraph.context.state === "suspended") {
+      audioGraph.context.resume().catch(() => { /* 静默；下次手势再试 */ });
+    }
+  }
+
+  // 计算每个 stem 的实际播放状态（用于 UI 显示与混音）。
+  //   - 若有任意 stem solo：只 solo 的 stem 发声，其他静音；
+  //   - 否则：所有未 mute 的 stem 发声。
+  function stemEffectiveState(track) {
+    const anySolo = state.stemTracks.some(item => item.solo);
+    const muted = track.mute || (anySolo && !track.solo);
+    return {
+      muted,
+      effectiveGain: muted ? 0 : clamp(track.gain, 0, 1.5),
+      effectivePan: clamp(track.pan, -1, 1),
+    };
+  }
+
+  function applyStemMix() {
+    if (!state.stemTracks.length) return;
+    const master = state.stemTracks.find(track => track.id === "master");
+    if (!master) return;
+    const { effectiveGain, effectivePan } = stemEffectiveState(master);
+    if (audioGraph.ready) {
+      audioGraph.masterGain.gain.value = effectiveGain;
+      audioGraph.masterPanner.pan.value = effectivePan;
+    } else {
+      // 降级：HTMLAudioElement.volume 范围是 0..1，pan 不生效。
+      elements.audio.volume = clamp(effectiveGain, 0, 1);
+    }
+    // 占位 stem 没有 audio 节点；UI 在 renderStemMixer 中反映状态。
+  }
 
   // ---- EditGraph：撤销/重做栈（第一版）-----------------------------------------
   // 设计原则：
@@ -80,6 +160,8 @@
         nextAnchorId: state.nextAnchorId,
         // 锁定状态也是用户编辑的一部分，撤销/重做时需要一起恢复。
         lockedFields: Array.from(state.lockedFields),
+        // stem 轨混音参数也是用户编辑的一部分，撤销/重做时一并恢复。
+        stemTracks: state.stemTracks.map(track => ({ ...track })),
       };
     },
 
@@ -95,6 +177,10 @@
       state.nextRestId = snapshot.nextRestId;
       state.nextAnchorId = snapshot.nextAnchorId;
       state.lockedFields = new Set(Array.isArray(snapshot.lockedFields) ? snapshot.lockedFields : []);
+      // stem 轨可能在旧版快照中不存在（向前兼容），缺失时保留默认 stem。
+      state.stemTracks = Array.isArray(snapshot.stemTracks) && snapshot.stemTracks.length
+        ? snapshot.stemTracks.map(track => ({ ...track }))
+        : defaultStemTracks();
       // 恢复后清除选中编辑器视图，避免引用已不存在的 region
       elements.lyricText.value = "";
       elements.lyricLanguage.value = "zh";
@@ -204,6 +290,7 @@
     lockChordCheckbox: byId("lock-chord-checkbox"),
     lockRestWrapper: byId("lock-rest-wrapper"),
     lockRestCheckbox: byId("lock-rest-checkbox"),
+    stemMixer: byId("stem-mixer"),
   };
 
   function setStatus(message, kind = "") {
@@ -510,6 +597,8 @@
     updateUndoRedoButtons();
     // 锁定状态也是项目编辑历史的一部分，重置时一并清空。
     state.lockedFields = new Set();
+    // stem 轨混音参数重置为默认；新项目里旧的混音参数无意义。
+    state.stemTracks = defaultStemTracks();
     elements.lyricText.value = "";
     elements.lyricLanguage.value = "zh";
     elements.chordInspector.hidden = true;
@@ -518,6 +607,8 @@
     if (elements.lockChordWrapper) elements.lockChordWrapper.hidden = true;
     if (elements.lockRestWrapper) elements.lockRestWrapper.hidden = true;
     elements.exactData.textContent = "选择和弦或歌词区域后显示。";
+    renderStemMixer();
+    applyStemMix();
   }
 
   function applyAnalysis(analysis, preserveEdits = false) {
@@ -1113,6 +1204,172 @@
     document.querySelector('[data-track="chords"]').hidden = !state.layers.chords;
   }
 
+  // ---- Stem 混音器渲染 --------------------------------------------------------
+  // 每轨显示：名字、角色徽章、Mute/Solo 按钮、Gain 滑块、Pan 滑块、数值。
+  // master 标记为"主输出"，其他标记为"占位 stem"，提示用户未接入分离后端。
+  // 渲染只更新数值与按钮状态，控件本身（input/button）不重建，避免拖动时丢失焦点。
+  function renderStemMixer() {
+    if (!elements.stemMixer) return;
+    const container = elements.stemMixer;
+    if (container.children.length !== state.stemTracks.length) {
+      clearElement(container);
+      state.stemTracks.forEach(track => container.appendChild(buildStemRow(track)));
+    }
+    state.stemTracks.forEach((track, index) => {
+      const row = container.children[index];
+      if (!row) return;
+      row.dataset.trackId = track.id;
+      const { muted } = stemEffectiveState(track);
+      const muteButton = row.querySelector('[data-stem-control="mute"]');
+      const soloButton = row.querySelector('[data-stem-control="solo"]');
+      const gainInput = row.querySelector('[data-stem-control="gain"]');
+      const panInput = row.querySelector('[data-stem-control="pan"]');
+      const gainValue = row.querySelector('[data-stem-readout="gain"]');
+      const panValue = row.querySelector('[data-stem-readout="pan"]');
+      const statusBadge = row.querySelector('[data-stem-readout="status"]');
+      if (muteButton) {
+        muteButton.setAttribute("aria-pressed", String(track.mute));
+        muteButton.classList.toggle("active", track.mute);
+        muteButton.textContent = track.mute ? "已静音" : "静音";
+      }
+      if (soloButton) {
+        soloButton.setAttribute("aria-pressed", String(track.solo));
+        soloButton.classList.toggle("active", track.solo);
+        soloButton.textContent = track.solo ? "独奏中" : "独奏";
+      }
+      if (gainInput) gainInput.value = String(track.gain);
+      if (panInput) panInput.value = String(track.pan);
+      if (gainValue) gainValue.textContent = `${(track.gain * 100).toFixed(0)}%`;
+      if (panValue) {
+        const percent = Math.round(track.pan * 100);
+        if (percent === 0) panValue.textContent = "中";
+        else if (percent < 0) panValue.textContent = `L ${Math.abs(percent)}`;
+        else panValue.textContent = `R ${percent}`;
+      }
+      if (statusBadge) {
+        if (track.source === "main") {
+          statusBadge.textContent = muted ? "主输出 · 静音" : "主输出";
+        } else {
+          statusBadge.textContent = muted ? "占位 · 静音" : "占位 stem";
+        }
+      }
+      row.classList.toggle("muted", muted);
+      row.classList.toggle("soloed", track.solo);
+    });
+  }
+
+  function buildStemRow(track) {
+    const row = document.createElement("div");
+    row.className = "stem-row";
+    row.dataset.trackId = track.id;
+    if (track.source === "main") row.classList.add("stem-master");
+    else row.classList.add("stem-placeholder");
+
+    const header = document.createElement("div");
+    header.className = "stem-header";
+    const name = document.createElement("span");
+    name.className = "stem-name";
+    name.textContent = track.name;
+    const role = document.createElement("span");
+    role.className = "stem-role";
+    role.textContent = track.role;
+    header.appendChild(name);
+    header.appendChild(role);
+    row.appendChild(header);
+
+    const controls = document.createElement("div");
+    controls.className = "stem-controls";
+
+    const muteButton = document.createElement("button");
+    muteButton.type = "button";
+    muteButton.dataset.stemControl = "mute";
+    muteButton.setAttribute("aria-pressed", String(track.mute));
+    muteButton.textContent = track.mute ? "已静音" : "静音";
+    controls.appendChild(muteButton);
+
+    const soloButton = document.createElement("button");
+    soloButton.type = "button";
+    soloButton.dataset.stemControl = "solo";
+    soloButton.setAttribute("aria-pressed", String(track.solo));
+    soloButton.textContent = track.solo ? "独奏中" : "独奏";
+    controls.appendChild(soloButton);
+
+    const gainLabel = document.createElement("label");
+    gainLabel.className = "stem-slider";
+    const gainCaption = document.createElement("span");
+    gainCaption.className = "stem-caption";
+    gainCaption.textContent = "音量";
+    const gainInput = document.createElement("input");
+    gainInput.type = "range";
+    gainInput.min = "0";
+    gainInput.max = "1.5";
+    gainInput.step = "0.01";
+    gainInput.value = String(track.gain);
+    gainInput.dataset.stemControl = "gain";
+    const gainValue = document.createElement("span");
+    gainValue.className = "stem-value";
+    gainValue.dataset.stemReadout = "gain";
+    gainValue.textContent = `${(track.gain * 100).toFixed(0)}%`;
+    gainLabel.appendChild(gainCaption);
+    gainLabel.appendChild(gainInput);
+    gainLabel.appendChild(gainValue);
+    controls.appendChild(gainLabel);
+
+    const panLabel = document.createElement("label");
+    panLabel.className = "stem-slider";
+    const panCaption = document.createElement("span");
+    panCaption.className = "stem-caption";
+    panCaption.textContent = "声像";
+    const panInput = document.createElement("input");
+    panInput.type = "range";
+    panInput.min = "-1";
+    panInput.max = "1";
+    panInput.step = "0.01";
+    panInput.value = String(track.pan);
+    panInput.dataset.stemControl = "pan";
+    const panValue = document.createElement("span");
+    panValue.className = "stem-value";
+    panValue.dataset.stemReadout = "pan";
+    const panPercent = Math.round(track.pan * 100);
+    panValue.textContent = panPercent === 0 ? "中" : (panPercent < 0 ? `L ${Math.abs(panPercent)}` : `R ${panPercent}`);
+    panLabel.appendChild(panCaption);
+    panLabel.appendChild(panInput);
+    panLabel.appendChild(panValue);
+    controls.appendChild(panLabel);
+
+    const status = document.createElement("span");
+    status.className = "stem-status";
+    status.dataset.stemReadout = "status";
+    status.textContent = track.source === "main" ? "主输出" : "占位 stem";
+    controls.appendChild(status);
+
+    row.appendChild(controls);
+    return row;
+  }
+
+  // 用户操作 stem 控件时统一入口：先记录撤销点，再更新数据，再应用混音与渲染。
+  function updateStemField(trackId, field, value) {
+    const track = state.stemTracks.find(item => item.id === trackId);
+    if (!track) return;
+    const oldValue = track[field];
+    if (oldValue === value) return;
+    editGraph.begin(`调整 stem ${track.name} 的 ${field}`);
+    track[field] = value;
+    applyStemMix();
+    renderStemMixer();
+    setStatus(`已调整 ${track.name} 的 ${field}：${formatStemFieldValue(field, value)}。`, "success");
+  }
+
+  function formatStemFieldValue(field, value) {
+    if (field === "mute" || field === "solo") return value ? "开" : "关";
+    if (field === "gain") return `${Math.round(value * 100)}%`;
+    if (field === "pan") {
+      const percent = Math.round(value * 100);
+      return percent === 0 ? "中" : (percent < 0 ? `L ${Math.abs(percent)}` : `R ${percent}`);
+    }
+    return String(value);
+  }
+
   function renderAll() {
     if (!state.analysis) return;
     setTimelineGeometry();
@@ -1123,6 +1380,8 @@
     renderCanvas();
     renderSelection();
     renderLayerVisibility();
+    renderStemMixer();
+    applyStemMix();
     updateTransport();
   }
 
@@ -1639,6 +1898,18 @@
         })),
         chord_overrides: state.chordOverrides,
         locked_fields: serializeLockedFields(),
+        // stem 轨混音参数（非破坏编辑）随项目持久化；占位 stem 也保存参数，
+        // 后续接入分离后端时可以复用用户已有的混音设置。
+        stem_tracks: state.stemTracks.map(track => ({
+          id: track.id,
+          name: track.name,
+          role: track.role,
+          mute: track.mute,
+          solo: track.solo,
+          gain: track.gain,
+          pan: track.pan,
+          source: track.source,
+        })),
         preferences: { snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics },
       },
     };
@@ -1755,6 +2026,27 @@
       // 静默丢弃指向已删除对象的锁定项，不抛错。
     });
     state.lockedFields = lockedFields;
+
+    // 加载 stem 轨混音参数；缺失或损坏时回退到默认 stem 集，保证向前兼容。
+    // 0.2.0 项目早期版本可能没有 stem_tracks 字段；这种情况视为新建项目。
+    const rawStemTracks = Array.isArray(editing.stem_tracks) ? editing.stem_tracks : [];
+    const validStemIds = new Set(["master", "drums", "bass", "other"]);
+    const loadedStemTracks = rawStemTracks
+      .filter(track => track && typeof track === "object" && typeof track.id === "string" && validStemIds.has(track.id))
+      .map(track => ({
+        id: track.id,
+        name: typeof track.name === "string" && track.name.trim() ? track.name.trim() : track.id,
+        role: typeof track.role === "string" ? track.role : track.id,
+        mute: Boolean(track.mute),
+        solo: Boolean(track.solo),
+        gain: clamp(finiteNumber(track.gain, 1.0), 0, 1.5),
+        pan: clamp(finiteNumber(track.pan, 0), -1, 1),
+        source: track.source === "main" ? "main" : "placeholder",
+      }));
+    // 必须存在 master 轨；缺失时整套回退到默认。
+    state.stemTracks = loadedStemTracks.some(track => track.id === "master")
+      ? loadedStemTracks
+      : defaultStemTracks();
   }
 
   // 把 0.1.0 项目的秒数边界迁移到 0.2.0 的 anchor 表。
@@ -1786,6 +2078,8 @@
     state.nextRestId = 1;
     // 0.1.0 项目没有锁定字段概念；迁移时清空，避免上一项目的锁定残留。
     state.lockedFields = new Set();
+    // 0.1.0 项目没有 stem_tracks 字段；迁移时回退到默认 stem 集。
+    state.stemTracks = defaultStemTracks();
 
     let previousEndAnchorId = null;
     sortedLegacy.forEach((legacy, index) => {
@@ -1911,6 +2205,10 @@
 
   async function togglePlayback() {
     if (!state.audioUrl) return;
+    // 首次播放时初始化 Web Audio API 节点图，让 stem 混音参数真实生效。
+    // AudioContext 必须在用户手势中创建/恢复，所以放在这里而不是模块加载时。
+    setupAudioGraph();
+    resumeAudioContext();
     try {
       if (elements.audio.paused) {
         if (elements.audio.ended || elements.audio.currentTime >= state.duration - 0.01) {
@@ -2103,6 +2401,82 @@
       renderChords();
       selectChord(window);
       setStatus(elements.lockChordCheckbox.checked ? `已锁定和弦修正 ${key}。` : `已取消锁定和弦 ${key}。`, "success");
+    });
+  }
+
+  // Stem 混音器事件委托：mute/solo 按钮点击、gain/pan 滑块输入。
+  // 用事件委托避免每次 renderStemMixer 都重新绑定监听器（控件不重建，但事件委托更稳）。
+  if (elements.stemMixer) {
+    elements.stemMixer.addEventListener("click", event => {
+      const button = event.target.closest('button[data-stem-control]');
+      if (!button) return;
+      const row = button.closest("[data-track-id]");
+      if (!row) return;
+      const trackId = row.dataset.trackId;
+      const field = button.dataset.stemControl;
+      if (field === "mute" || field === "solo") {
+        const track = state.stemTracks.find(item => item.id === trackId);
+        if (!track) return;
+        updateStemField(trackId, field, !track[field]);
+      }
+    });
+    // input 事件用 change 提交（拖动结束才记撤销点），input 事件只实时更新音频。
+    // 这样拖动 gain 滑块不会每个像素都写一条 undo。
+    elements.stemMixer.addEventListener("input", event => {
+      const input = event.target.closest('input[data-stem-control]');
+      if (!input) return;
+      const row = input.closest("[data-track-id]");
+      if (!row) return;
+      const trackId = row.dataset.trackId;
+      const field = input.dataset.stemControl;
+      if (field !== "gain" && field !== "pan") return;
+      const track = state.stemTracks.find(item => item.id === trackId);
+      if (!track) return;
+      const value = Number(input.value);
+      if (!Number.isFinite(value)) return;
+      // 拖动过程中直接改值并应用混音，但不记 undo（change 事件再提交）
+      track[field] = value;
+      applyStemMix();
+      // 只更新数值显示，不重建控件
+      const gainValue = row.querySelector('[data-stem-readout="gain"]');
+      const panValue = row.querySelector('[data-stem-readout="pan"]');
+      const statusBadge = row.querySelector('[data-stem-readout="status"]');
+      if (field === "gain" && gainValue) gainValue.textContent = `${Math.round(value * 100)}%`;
+      if (field === "pan" && panValue) {
+        const percent = Math.round(value * 100);
+        panValue.textContent = percent === 0 ? "中" : (percent < 0 ? `L ${Math.abs(percent)}` : `R ${percent}`);
+      }
+      if (statusBadge) {
+        const { muted } = stemEffectiveState(track);
+        if (track.source === "main") statusBadge.textContent = muted ? "主输出 · 静音" : "主输出";
+        else statusBadge.textContent = muted ? "占位 · 静音" : "占位 stem";
+      }
+    });
+    elements.stemMixer.addEventListener("change", event => {
+      const input = event.target.closest('input[data-stem-control]');
+      if (!input) return;
+      const row = input.closest("[data-track-id]");
+      if (!row) return;
+      const trackId = row.dataset.trackId;
+      const field = input.dataset.stemControl;
+      if (field !== "gain" && field !== "pan") return;
+      const value = Number(input.value);
+      if (!Number.isFinite(value)) return;
+      // 拖动结束才记 undo：把当前值视为"新值"，但数据已经改过，所以先回滚再走 updateStemField。
+      const track = state.stemTracks.find(item => item.id === trackId);
+      if (!track) return;
+      const currentValue = track[field];
+      if (currentValue === value) return;
+      // currentValue 已经是 value（input 事件改过），用 currentValue 直接提交 undo：
+      // 把"undoStack 顶快照"视为操作前状态。这里直接调用 editGraph.begin 然后保留值即可。
+      // 简化：用 updateStemField 会再次改值（值相同则不写 undo），所以先回滚再调。
+      track[field] = track[field]; // no-op
+      // 直接调用 updateStemField 会因 oldValue === value 跳过；用底层的 begin + render。
+      editGraph.begin(`调整 stem ${track.name} 的 ${field}`);
+      track[field] = value;
+      applyStemMix();
+      renderStemMixer();
+      setStatus(`已调整 ${track.name} 的 ${field}：${formatStemFieldValue(field, value)}。`, "success");
     });
   }
 

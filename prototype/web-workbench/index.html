@@ -85,6 +85,20 @@
         <label><input type="checkbox" data-layer="chords" checked> 和弦</label>
       </div>
 
+      <section class="stem-mixer-card" aria-labelledby="stem-mixer-title">
+        <header class="stem-mixer-header">
+          <div>
+            <p class="eyebrow">多轨混音 · P1.2</p>
+            <h2 id="stem-mixer-title">3. 多轨伴奏混音器</h2>
+            <p class="subtitle">非破坏编辑：原始音频永不覆盖；mute / solo / gain / pan 只保存参数。主输出真实生效；鼓组 / 贝斯 / 其他乐器是占位 stem，等接入音源分离后端后才会实际播放。</p>
+          </div>
+        </header>
+        <div id="stem-mixer" class="stem-mixer" role="group" aria-label="stem 轨混音控件">
+          <!-- stem 行由 renderStemMixer 动态生成 -->
+        </div>
+        <p class="stem-mixer-footnote">占位 stem 不影响当前试听；导入项目后混音参数会自动恢复。独奏模式下，未独奏的轨道自动静音。</p>
+      </section>
+
       <div class="timeline-layout">
         <div class="timeline-card">
           <div id="timeline-scroll" class="timeline-scroll">
