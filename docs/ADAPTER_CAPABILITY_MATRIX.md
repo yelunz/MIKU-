@@ -5,7 +5,7 @@
 本报告为 P3 首批引擎适配的调研草稿，覆盖 4 个目标：
 
 1. MIDI 1.0 基线（保守交换基线）
-2. OpenUtau USTX 0.6（首个端到端工程导出验收）
+2. OpenUtau USTX 0.7（首个端到端工程导出验收，0.1.565 实测 YAML 格式）
 3. Synthesizer V Studio Pro 1.9.0（用户现有版本）
 4. VOCALOID6 Editor 6.13.0 完整版（后续适配目标，本轮仅草稿）
 
@@ -167,108 +167,133 @@
 
 ---
 
-## 3. OpenUtau USTX 0.6 格式调研
+## 3. OpenUtau USTX 0.7 格式调研
 
 ### 3.1 格式概述
 
-依据项目内 `docs/RESEARCH_NOTES.md` 已核对的官方资料：
+依据项目内 `docs/RESEARCH_NOTES.md` 已核对的官方资料与用户电脑 OpenUtau 0.1.565
+实机备份文件（`Untitled-autosave.ustx`）实测核对：
 
 - **当前稳定基线**：OpenUtau 0.1.565
-- **格式版本**：USTX 0.6，官方公开于 [OpenUtau Wiki: USTX file format](https://github.com/openutau/OpenUtau/wiki/USTX-file-format)
-- **文件性质**：UTF-8 文本，YAML 风格；扩展名 `.ustx`
+- **格式版本**：USTX 0.7（**已在 0.1.565 实测备份文件中确认**，非早前推断的 0.6）
+- **文件性质**：UTF-8 **YAML 文本**（非 JSON）；扩展名 `.ustx`
+- **resolution**：`480`（**已实测确认**；项目内部 PPQ 960 需按 `tick / 2` 换算）
 - **可表达内容**：速度、拍号、轨道、歌词、音符、音高点、颤音、音素覆盖、参数曲线、伴奏引用
 - **OpenUtau 导入能力**：USTX、UST、VSQX、MIDI、UFDATA、MusicXML
 - **OpenUtau 导出/保存能力**：USTX（原生）、UST/MIDI/WAV
 - **Phonemizer API**：实验性且可能变化；首版不依赖插件
 - **三平台**：Windows、macOS、Linux
 
-### 3.2 USTX 字段结构（草稿，需实际测试环境验证）
+### 3.2 USTX 0.7 字段结构（已在 0.1.565 实测备份文件上核对）
 
-> 本节字段结构基于项目内已核对的"可表达内容"清单和 USTX 0.6 在 OpenUtau 代码库的已知模型推断。**字段名、嵌套层级、单位（tick 还是秒）需在 0.1.565 实机导出后用真实文件比对并固定到测试记录。**
+> 以下字段结构来自用户电脑 OpenUtau 0.1.565 的真实 autosave 备份文件，已固定为本项目
+> USTX 导出器的 schema 基线。导出器写空 `expressions: {}` 让 OpenUtau 用内置默认表达式
+> 定义，不复制一大段内置表达式键值对。
 
-```text
-project:
-  name: string
-  voice_db_path: string
-  resampler: string
-  wavtool: string
-  version: "0.6"
-
+```yaml
+name: <string>
+comment: ""
+output_dir: Vocal
+cache_dir: UCache
+ustx_version: "0.7"
+resolution: 480
+bpm: <number>
+beat_per_bar: 4
+beat_unit: 4
+expressions: {}
+exp_selectors: []
+exp_primary: -1
+exp_secondary: -1
+key: 0                      # 0..11 整数（C 大调 = 0）
+time_signatures:
+- bar_position: 0
+  beat_per_bar: 4
+  beat_unit: 4
+tempos:
+- position: 0
+  bpm: <number>
 tracks:
-  - name: string
-    phonemizer: string       # 如 "ja CVVC" / "zh presamp"
-    synthesizer: string
-
+- phonemizer: OpenUtau.Core.DefaultPhonemizer
+  renderer_settings: {}
+  track_name: <string>
+  track_color: Blue         # 内置颜色名
+  mute: false
+  solo: false
+  volume: 0
+  pan: 0
+  track_expressions: []
+  voice_color_names:
+  - ""
 voice_parts:
-  - name: string
-    track_no: int
-    position: int            # part 起始 tick
-    notes:
-      - pos: int             # 相对 part 的起始 tick
-        duration: int
-        lyric: string        # 单音节歌词
-        pitch: int
-        vibrato: { length, period, depth, in, out, shift, drift }
-        pitch_points: [{ x, y, shape }]
-        phoneme_overrides: [{ phoneme, offset }]
-
-tempo:
-  - position: int
-    bpm: number
-
-time_signature:
-  - beat_per_bar: int
-    note_per_beat: int
-    bar_position: int
-
-mix:                         # 伴奏轨
-  - name: string
-    file: string
-    gain: number
-    pan: number
-    muted: boolean
-    solo: boolean
+- duration: <ticks>         # USTX tick（resolution 480）
+  name: New Part
+  comment: ""
+  track_no: 0
+  position: <ticks>         # part 在时间轴上的起始 tick
+  notes:
+  - position: <ticks>       # 相对 part 的起始 tick
+    duration: <ticks>
+    tone: <int>             # 整数 MIDI pitch
+    lyric: <string>
+    pitch:
+      data:
+      - {x: -40, y: 0, shape: io}   # 流式 inline 表达式
+      - {x: 40, y: 0, shape: io}
+      snap_first: true
+    vibrato: {length: 0, period: 175, depth: 25, in: 10, out: 10, shift: 0, drift: 0, vol_link: 0}
+    phoneme_expressions: []
+    phoneme_overrides: []
+  curves: []
+wave_parts: []
 ```
 
-### 3.3 中立项目 → USTX 0.6 字段映射
+### 3.3 中立项目 → USTX 0.7 字段映射
 
-| 中立字段 | USTX 0.6 字段 | 转换说明 |
+| 中立字段 | USTX 0.7 字段 | 转换说明 |
 |---|---|---|
-| TempoMap.bpm | `tempo[0].bpm` | 直接 |
-| TempoMap.ppq (960) | USTX 内部 PPQ | **需验证**：USTX 历史上常用 PPQ 480；若不一致需 ×480/960 缩放 |
-| 拍号 | `time_signature[0]` | 原型未保存拍号；需从 analysis 推导（默认 4/4） |
-| NoteEvent.start_anchor → tick | `note.pos`（相对 part） | 全局 tick - part.position |
-| NoteEvent.end_anchor - start_anchor → tick | `note.duration` | 差值 |
-| NoteEvent.pitch (60=C4) | `note.pitch` | 直接整数 |
-| NoteEvent.velocity (0..1) | USTX velocity 范围 | **需验证**：UTAU 传统 0..200；USTX 可能 0..127 或 0..200 |
-| LyricRegion.text（整段） | `note.lyric`（逐音节） | **需要 P2 完成切分后才能逐音符导出** |
-| LyricRegion.language (zh/ja) | `track.phonemizer` | 通过选择对应语言 Phonemizer 表达 |
-| RestEvent | USTX 中相邻音符之间的空隙 | 隐式；或插入空音符（lyric "R"）|
-| StemTrack（master） | `mix[].file` + gain/pan/mute/solo | trim/fade 不在 mix 字段内 |
-| StemTrack（drums/bass/other） | 多个 `mix[]` 条目 | **需实际分离音频文件存在** |
-| NoteEvent.confidence | 不支持 | 丢失 |
-| NoteEvent.source | 不支持 | 丢失 |
-| chord_overrides | 不支持 | 丢失 |
+| TempoMap.bpm | `bpm` + `tempos[0].bpm` | 直接（浮点） |
+| TempoMap.ppq (960) | `resolution: 480` | `ustx_tick = project_tick * 480 / 960`（即 project_tick / 2，取整） |
+| 拍号 | `time_signatures[0]` | 默认 4/4（`bar_position: 0, beat_per_bar: 4, beat_unit: 4`） |
+| NoteEvent.start_anchor → tick | `voice_parts[0].notes[i].position` | project tick / 2，取整 |
+| NoteEvent.end_anchor - start_anchor → tick | `notes[i].duration` | (end_tick - start_tick) / 2，取整，最小 1 |
+| NoteEvent.pitch (60=C4) | `notes[i].tone` | 取整（USTX tone 是整数） |
+| NoteEvent.velocity (0..1) | 不映射 | USTX 0.7 音符无 velocity 字段；丢失 |
+| NoteEvent.stem_id | 不映射 | USTX 单声部工程；丢失 |
+| NoteEvent.confidence / source | 不映射 | 丢失 |
+| syllable.reading_override | `notes[i].lyric` | 优先使用 |
+| syllable.default_reading | `notes[i].lyric` | override 为空时回退 |
+| syllable.text | `notes[i].lyric` | override 与 default 都为空时回退 |
+| LyricRegion（容器） | 不映射 | 歌词区域边界与语言信息丢失 |
+| RestEvent | 不映射 | USTX 用相邻音符之间的 tick 间隙表达 |
+| StemTrack | 不映射 | 单声部扁平化 |
+| chord_overrides | 不映射 | 丢失 |
+| source_audio | 不映射 | 丢失（USTX `wave_parts` 本轮不写） |
+| tempo_map.key 候选标签 | `key: 0` | 不解析标签；默认 C 大调 |
 
-### 3.4 USTX 0.6 字段损失报告
+### 3.4 USTX 0.7 字段损失报告
 
-USTX 0.6 是首批目标中**保真度最高**的格式，但仍会丢失：
+USTX 0.7 是首批目标中**保真度最高**的格式，但仍会丢失：
 
 | 损失字段 | 严重程度 | 缓解策略 |
 |---|---|---|
+| NoteEvent.velocity | 中 | USTX 音符无 velocity；力度通过 expressions 表达，本轮不映射 |
 | NoteEvent.confidence / source | 低 | USTX 无此概念；保留在项目内部 |
-| StemTrack.trim/fade | 中 | 用 part envelope 近似；需实机验证 |
+| NoteEvent.stem_id | 中 | 单声部扁平化；多 stem 需用户手工重建 |
+| StemTrack.trim/fade | 中 | USTX `wave_parts` / `mix` 不在导出范围 |
+| LyricRegion 容器 | 低 | 只保留音节级 lyric |
+| RestEvent | 低 | 隐式表达为音符间隙 |
 | Anchor.id（共享边界语义） | 低 | tick 位置自然成为边界 |
 | chord_overrides / analysis | 低 | USTX 不承载和声分析 |
-| NoteEvent 浮点 pitch 小数部分 | 中 | USTX pitch 通常是整数；浮点部分需 pitch_points |
+| NoteEvent 浮点 pitch 小数部分 | 中 | USTX tone 是整数；本轮写默认 pitch 点 |
+| tempo_map.key 候选标签 | 低 | 默认 `key: 0` |
 | 变速段（原型暂无） | 低 | USTX 支持 tempo 数组；未来可扩展 |
 
 ### 3.5 风险与依赖
 
-- **Phonemizer 依赖**：导出 USTX 后是否能正确发音取决于目标机器上已安装的声库和 Phonemizer。
-- **PPQ 转换**：USTX 内部 PPQ 与 960 的差异需要显式处理。
-- **YAML 库依赖**：写 USTX 需要 YAML 序列化；Python 标准库无 YAML，需要引入 `PyYAML`（MIT）或自实现简化 YAML 写入。
-- **字段名核对**：USTX 0.6 的精确字段名必须在 0.1.565 实机导出后用真实文件比对并固定。
+- **Phonemizer 依赖**：导出 USTX 后是否能正确发音取决于目标机器上已安装的声库和 Phonemizer。本轮统一用 `OpenUtau.Core.DefaultPhonemizer`，不按歌词语言切换。
+- **PPQ 转换**：已确认 `resolution: 480`；导出器按 `project_tick / 2` 换算。
+- **YAML 序列化**：导出器手写最小 YAML 序列化器（`tools/export_ustx.py` 中 `dump_yaml` / `_emit_*` / `_FlowDict`），只覆盖 USTX schema 子集；不引入 PyYAML。
+- **实机打开验证**：YAML 字段结构已对齐真实备份文件，但仍需在 OpenUtau 0.1.565 三平台实机打开导出的 `.ustx` 完成端到端验收。
 
 ---
 
@@ -391,7 +416,7 @@ Layer 3: ust-group-fallback       — UST 降级
 | 顺序 | 适配器 | 工作量 | 依赖项 | 验收价值 |
 |---|---|---|---|---|
 | 1 | **MIDI 基线适配器** | 小 | `mido`（MIT） | 高（所有目标的基线） |
-| 2 | **OpenUtau USTX 0.6 适配器** | 中 | `PyYAML`（MIT）或自实现；0.1.565 实机核对 | 高（P3 首个端到端验收） |
+| 2 | **OpenUtau USTX 0.7 适配器** | 中 | 手写最小 YAML 序列化器（零第三方依赖）；0.1.565 实测备份文件已核对 | 高（P3 首个端到端验收） |
 | 3 | **Synthesizer V Layer 1 (midi-baseline)** | 小 | 复用 1 | 中 |
 | 4 | **Synthesizer V Layer 2 (midi-plus-helper-script)** | 中 | 1.9.0 实机验证 | 高（用户现有版本） |
 | 5 | **Synthesizer V Layer 3 (ust-group-fallback)** | 小 | 无 | 低 |
@@ -422,15 +447,15 @@ class Adapter:
 
 ## 7. 待实际测试环境验证项
 
-### 7.1 OpenUtau USTX 0.6
+### 7.1 OpenUtau USTX 0.7
 
-- [ ] USTX 0.6 的精确字段名、嵌套结构、单位（tick vs 秒）
-- [ ] USTX 内部 PPQ 是否为 480；若是，960→480 的 tick 缩放策略
-- [ ] USTX velocity 范围（0..127 / 0..200 / 其他）
-- [ ] 0.1.565 默认 phonemizer 名称（zh / ja）
-- [ ] USTX mix 字段是否能表达 trim/fade
-- [ ] YAML 子集是否足够（避免引入 PyYAML）
-- [ ] 三平台打开同一 USTX 的一致性
+- [x] USTX 0.7 的精确字段名、嵌套结构、单位（tick）—— 已在 0.1.565 实测备份文件上核对
+- [x] USTX 内部 PPQ 是否为 480 —— 已确认 `resolution: 480`；导出器按 `project_tick / 2` 换算
+- [x] USTX velocity 范围 —— USTX 0.7 音符无 velocity 字段；力度通过 expressions 表达，本轮不映射
+- [x] 0.1.565 默认 phonemizer 名称 —— 统一用 `OpenUtau.Core.DefaultPhonemizer`，不按语言切换
+- [x] YAML 子集是否足够（避免引入 PyYAML）—— 手写最小 YAML 序列化器，零第三方依赖
+- [ ] USTX `wave_parts` / `mix` 字段是否能表达 trim/fade —— 本轮不写伴奏引用，留待后续
+- [ ] 三平台打开同一 USTX 的一致性 —— 待实机端到端验收
 
 ### 7.2 Synthesizer V Studio Pro 1.9.0
 
@@ -489,7 +514,7 @@ class Adapter:
 ## 9. 调研边界声明
 
 1. 本报告未使用 WebFetch 实时访问外部网络
-2. USTX 0.6 的精确字段结构基于项目内已核对的"可表达内容"清单和 OpenUtau 已知模型推断
+2. USTX 0.7 的精确字段结构已根据用户电脑 OpenUtau 0.1.565 实测备份文件（`Untitled-autosave.ustx`）核对并固定，不再属于推断
 3. Synthesizer V Studio Pro 1.9.0 脚本 API 字段细节需在实机验证后补充
 4. VOCALOID6 6.13.0 完整版测试环境未获得，相关条目均为基于官方资料的推断
-5. 本报告为草稿，不构成最终选型
+5. 本报告原为草稿；USTX 0.7 部分已升级为实测核对结论，其余部分仍为草稿

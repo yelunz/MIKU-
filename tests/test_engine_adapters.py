@@ -1,4 +1,4 @@
-"""Tests for P3 engine adapters (MIDI baseline, USTX 0.6, Synthesizer V sidecar)."""
+"""Tests for P3 engine adapters (MIDI baseline, USTX 0.7, Synthesizer V sidecar)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+try:
+    import yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +126,7 @@ def make_minimal_project() -> dict:
                     "index": 0,
                     "text": "你",
                     "default_reading": "ni",
-                    "reading_override": "",
+                    "reading_override": "ni3",
                     "start_anchor_id": "anchor-1",
                     "end_anchor_id": "anchor-2",
                 },
@@ -254,39 +260,117 @@ class MidiExporterTests(unittest.TestCase):
 
 
 class UstxExporterTests(unittest.TestCase):
-    def test_ustx_exporter_outputs_valid_json(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tmp = Path(directory)
-            project_path = write_project(tmp, make_minimal_project())
-            output = tmp / "out.ustx"
-            completed = run_exporter(USTX_EXPORTER, project_path, output)
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            text = output.read_text(encoding="utf-8")
-            data = json.loads(text)
-            self.assertIsInstance(data, dict)
+    def _run_export(self, tmp: Path) -> Path:
+        project_path = write_project(tmp, make_minimal_project())
+        output = tmp / "out.ustx"
+        completed = run_exporter(USTX_EXPORTER, project_path, output)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        return output
 
-    def test_ustx_exporter_has_ustx_version_0_6(self) -> None:
+    def _load_yaml(self, path: Path) -> dict:
+        if not HAVE_YAML:
+            self.skipTest("PyYAML not available")
+        with path.open("r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle)
+
+    def test_ustx_exporter_outputs_valid_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
-            project_path = write_project(tmp, make_minimal_project())
-            output = tmp / "out.ustx"
-            run_exporter(USTX_EXPORTER, project_path, output)
-            data = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(data["ustx_version"], "0.6")
+            output = self._run_export(tmp)
+            text = output.read_text(encoding="utf-8")
+            # Must NOT be JSON (no leading brace or bracket).
+            self.assertFalse(text.lstrip().startswith(("{", "[")))
+            data = self._load_yaml(output)
+            self.assertIsInstance(data, dict)
+            # Top-level USTX 0.7 fields must be present.
+            for key in ("name", "ustx_version", "resolution", "tracks",
+                        "voice_parts", "tempos", "time_signatures"):
+                self.assertIn(key, data)
+
+    def test_ustx_exporter_has_ustx_version_0_7(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output = self._run_export(tmp)
+            text = output.read_text(encoding="utf-8")
+            # YAML text must contain the quoted 0.7 version string.
+            self.assertIn('ustx_version: "0.7"', text)
+            data = self._load_yaml(output)
+            self.assertEqual(data["ustx_version"], "0.7")
+
+    def test_ustx_exporter_has_resolution_480(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output = self._run_export(tmp)
+            text = output.read_text(encoding="utf-8")
+            self.assertIn("resolution: 480", text)
+            data = self._load_yaml(output)
+            self.assertEqual(data["resolution"], 480)
 
     def test_ustx_exporter_notes_mapped_from_project_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
-            project_path = write_project(tmp, make_minimal_project())
-            output = tmp / "out.ustx"
-            run_exporter(USTX_EXPORTER, project_path, output)
-            data = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(len(data["notes"]), 2)
-            self.assertEqual(data["notes"][0]["tone"], 60)
-            self.assertEqual(data["notes"][1]["tone"], 62)
-            self.assertIn("pos", data["notes"][0])
-            self.assertIn("duration", data["notes"][0])
-            self.assertIn("lyric", data["notes"][0])
+            output = self._run_export(tmp)
+            data = self._load_yaml(output)
+            parts = data.get("voice_parts") or []
+            self.assertEqual(len(parts), 1)
+            notes = parts[0].get("notes") or []
+            # Fixture has 2 master notes.
+            self.assertEqual(len(notes), 2)
+            # Project ticks are 0 and 960; USTX resolution 480 -> ticks / 2.
+            self.assertEqual(notes[0]["position"], 0)
+            self.assertEqual(notes[1]["position"], 480)
+            # tone is integer MIDI pitch.
+            self.assertEqual(notes[0]["tone"], 60)
+            self.assertEqual(notes[1]["tone"], 62)
+            # duration is (end_tick - start_tick) / 2 = 960 / 2 = 480.
+            self.assertEqual(notes[0]["duration"], 480)
+
+    def test_ustx_exporter_writes_track_and_voice_part(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output = self._run_export(tmp)
+            text = output.read_text(encoding="utf-8")
+            self.assertIn("tracks:", text)
+            self.assertIn("voice_parts:", text)
+            self.assertIn("track_name:", text)
+            self.assertIn("phonemizer:", text)
+            data = self._load_yaml(output)
+            self.assertEqual(len(data["tracks"]), 1)
+            self.assertEqual(data["tracks"][0]["track_color"], "Blue")
+            self.assertEqual(data["tracks"][0]["phonemizer"],
+                             "OpenUtau.Core.DefaultPhonemizer")
+
+    def test_ustx_exporter_writes_tempos_and_time_signatures(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output = self._run_export(tmp)
+            text = output.read_text(encoding="utf-8")
+            self.assertIn("tempos:", text)
+            self.assertIn("time_signatures:", text)
+            data = self._load_yaml(output)
+            self.assertEqual(data["tempos"][0]["position"], 0)
+            self.assertEqual(data["tempos"][0]["bpm"], 120.0)
+            self.assertEqual(data["time_signatures"][0]["bar_position"], 0)
+            self.assertEqual(data["time_signatures"][0]["beat_per_bar"], 4)
+            self.assertEqual(data["time_signatures"][0]["beat_unit"], 4)
+
+    def test_ustx_exporter_lyric_uses_syllable_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            output = self._run_export(tmp)
+            data = self._load_yaml(output)
+            notes = data["voice_parts"][0]["notes"]
+            lyrics = [note["lyric"] for note in notes]
+            # syllable-1 has reading_override "ni3" -> override wins over default.
+            # syllable-2 has reading_override "" and default_reading "hao".
+            self.assertIn("ni3", lyrics)
+            self.assertIn("hao", lyrics)
+            # Override must win over default for the note at position 0.
+            note1 = next(n for n in notes if n["position"] == 0)
+            self.assertEqual(note1["lyric"], "ni3")
+            # Default reading path for the note at position 480.
+            note2 = next(n for n in notes if n["position"] == 480)
+            self.assertEqual(note2["lyric"], "hao")
 
     def test_ustx_exporter_loss_report_to_stderr(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -295,7 +379,11 @@ class UstxExporterTests(unittest.TestCase):
             completed = run_exporter(USTX_EXPORTER, project_path, "out.ustx", "--loss-report")
             self.assertEqual(completed.returncode, 0)
             self.assertIn("confidence", completed.stderr)
-            self.assertIn("stem_tracks", completed.stderr)
+            self.assertIn("source", completed.stderr)
+            self.assertIn("velocity", completed.stderr)
+            self.assertIn("stem_id", completed.stderr)
+            self.assertIn("rests", completed.stderr)
+            self.assertIn("source_audio", completed.stderr)
 
 
 class SynthvSidecarExporterTests(unittest.TestCase):
@@ -350,8 +438,17 @@ class AllExportersEmptyProjectTests(unittest.TestCase):
             ustx_out = tmp / "empty.ustx"
             completed_ustx = run_exporter(USTX_EXPORTER, project_path, ustx_out)
             self.assertEqual(completed_ustx.returncode, 0, completed_ustx.stderr)
-            data = json.loads(ustx_out.read_text(encoding="utf-8"))
-            self.assertEqual(data["notes"], [])
+            ustx_text = ustx_out.read_text(encoding="utf-8")
+            # Empty project still yields valid YAML with an empty notes list
+            # inside the single voice part.
+            if HAVE_YAML:
+                ustx_data = yaml.safe_load(ustx_text)
+                parts = ustx_data.get("voice_parts") or []
+                self.assertEqual(len(parts), 1)
+                self.assertEqual(parts[0].get("notes"), [])
+            else:
+                self.assertIn("voice_parts:", ustx_text)
+                self.assertIn("notes: []", ustx_text)
 
             sidecar_out = tmp / "empty_sidecar.json"
             completed_side = run_exporter(SYNTHV_SIDECAR_EXPORTER, project_path, sidecar_out)
