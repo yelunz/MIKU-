@@ -31,6 +31,10 @@
     selectedRestId: null,
     zoom: 16,
     snapMode: "half-beat",
+    // P1.2 轮 3：附点与 Swing 扩展。附点把当前网格拉长 1.5 倍；
+    // Swing 在偶数细分网格上把第二个半段延迟，比例 0..0.7。
+    dottedSnap: false,
+    swingAmount: 0,
     continuousLyrics: true,
     layers: { waveform: true, energy: true, beats: true, sections: true, chords: true },
     dragging: null,
@@ -289,6 +293,8 @@
     audioName: byId("audio-name"),
     zoomRange: byId("zoom-range"),
     snapGrid: byId("snap-grid"),
+    dottedSnap: byId("dotted-snap"),
+    swingAmount: byId("swing-amount"),
     continuousLyrics: byId("continuous-lyrics"),
     timelineScroll: byId("timeline-scroll"),
     timelineContent: byId("timeline-content"),
@@ -337,6 +343,7 @@
     pianoRollStemSelect: byId("piano-roll-stem-select"),
     splitNoteButton: byId("split-note-button"),
     mergeNoteButton: byId("merge-note-button"),
+    quantizeNoteButton: byId("quantize-note-button"),
     deleteNoteButton: byId("delete-note-button"),
   };
 
@@ -526,9 +533,32 @@
     const tempo = topTempoCandidate();
     if (!tempo || state.snapMode === "none") return 0;
     const beat = 60 / finiteNumber(tempo.bpm, 120);
-    if (state.snapMode === "quarter-beat") return beat / 4;
-    if (state.snapMode === "half-beat") return beat / 2;
-    return beat;
+    let interval;
+    switch (state.snapMode) {
+      case "quarter-beat": interval = beat / 4; break;
+      case "eighth-beat": interval = beat / 8; break;
+      case "triplet-half": interval = beat / 3; break;       // 1/3 拍 = 三连音半拍
+      case "triplet-quarter": interval = beat / 6; break;    // 1/6 拍 = 三连音四分拍
+      case "half-beat": interval = beat / 2; break;
+      case "beat":
+      default: interval = beat; break;
+    }
+    // 附点：网格拉长 1.5 倍（仅在非三连音网格上有意义，但允许在所有网格上叠加）
+    if (state.dottedSnap && state.snapMode !== "triplet-half" && state.snapMode !== "triplet-quarter") {
+      interval = interval * 1.5;
+    }
+    return interval;
+  }
+
+  // Swing 偏移：在偶数细分网格上，把每个网格的"后半段"边界向后推 swingAmount * (interval/2)。
+  // 奇数段（第 0/2/4... 个网格）起点保持原位，偶数段起点被延迟。
+  // 三连音网格不应用 swing（三连音本身已是奇分，swing 概念不适用）。
+  function swingOffsetForIndex(gridIndex, interval) {
+    if (!state.swingAmount || interval <= 0) return 0;
+    if (state.snapMode === "triplet-half" || state.snapMode === "triplet-quarter") return 0;
+    if (state.snapMode === "beat") return 0; // 整拍网格上 swing 无可推点位
+    if (gridIndex % 2 === 0) return 0;       // 前半段不动
+    return state.swingAmount * (interval / 2);
   }
 
   function snapTime(seconds, bypass = false) {
@@ -538,8 +568,30 @@
     if (state.duration - seconds <= interval / 2) return state.duration;
     const tempo = topTempoCandidate();
     const origin = finiteNumber(tempo.first_beat_seconds);
-    const snapped = origin + Math.round((seconds - origin) / interval) * interval;
-    return clamp(Number(snapped.toFixed(6)), 0, state.duration);
+    const rawIndex = Math.round((seconds - origin) / interval);
+    // 在 swing 网格上，需要比较"加 swing 偏移后的网格点"与"原始偶数段边界"两个候选，取最近者
+    const candidateEven = origin + rawIndex * interval;            // 不带 swing 的常规网格点
+    const oddIndex = rawIndex - (rawIndex % 2 === 0 ? 0 : 1) + 1;  // 落在后半段的候选奇数网格点
+    const candidateOdd = origin + oddIndex * interval + swingOffsetForIndex(oddIndex, interval);
+    const candidates = [candidateEven];
+    if (oddIndex !== rawIndex && candidateOdd !== candidateEven) candidates.push(candidateOdd);
+    let best = candidates[0];
+    let bestDist = Math.abs(seconds - best);
+    for (let i = 1; i < candidates.length; i++) {
+      const d = Math.abs(seconds - candidates[i]);
+      if (d < bestDist) { best = candidates[i]; bestDist = d; }
+    }
+    return clamp(Number(best.toFixed(6)), 0, state.duration);
+  }
+
+  // 量化函数（P1.2 轮 3）：把任意 sample 对齐到当前网格。
+  // 用于钢琴卷帘拖动结束后强制对齐，以及将选区转换为歌词/休止时的边界吸附。
+  function quantizeSample(sample) {
+    const interval = snapIntervalSeconds();
+    if (!interval || !state.sampleRateHz) return sample;
+    const seconds = sample / state.sampleRateHz;
+    const snapped = snapTime(seconds);
+    return Math.round(snapped * state.sampleRateHz);
   }
 
   // ---- 分析 JSON 校验 ----------------------------------------------------------
@@ -1544,12 +1596,42 @@
     setStatus(`已合并音符 → ${first.id}。`, "success");
   }
 
-  // 钢琴卷帘工具按钮可用性：拆分需要选中；合并需要选中 + 候选；删除需要选中。
+  // 量化选中音符（P1.2 轮 3）：把起止 sample 对齐到当前 snap 网格。
+  // 网格关闭时不做任何改动；调用前先 detach 共享 anchor，保持邻居不动。
+  function quantizeSelectedNote() {
+    if (!state.selectedNoteId) return;
+    const note = state.notes.find(item => item.id === state.selectedNoteId);
+    if (!note) return;
+    if (!snapIntervalSeconds()) {
+      setStatus("吸附网格已关闭，无法量化；请先选择 1 拍 / 1/2 拍 / 1/4 拍 / 1/8 拍 / 三连音之一。", "error");
+      return;
+    }
+    const startSample = anchorStartSample(note);
+    const endSample = anchorEndSample(note);
+    const newStartSample = quantizeSample(startSample);
+    const newEndSample = Math.max(newStartSample + 1, quantizeSample(endSample));
+    if (newStartSample === startSample && newEndSample === endSample) {
+      setStatus(`音符 ${note.id} 已在网格上，无需量化。`, "success");
+      return;
+    }
+    editGraph.begin(`量化音符 ${note.id}`);
+    detachNoteAnchorIfShared(note, "start");
+    detachNoteAnchorIfShared(note, "end");
+    moveAnchor(note.startAnchorId, newStartSample);
+    moveAnchor(note.endAnchorId, newEndSample);
+    pruneAnchors();
+    renderPianoRoll();
+    updatePianoRollToolButtons();
+    setStatus(`已量化音符 ${note.id} → ${anchorStartSeconds(note).toFixed(3)}–${anchorEndSeconds(note).toFixed(3)} 秒。`, "success");
+  }
+
+  // 钢琴卷帘工具按钮可用性：拆分需要选中；合并需要选中 + 候选；量化与删除需要选中。
   function updatePianoRollToolButtons() {
     const hasSelection = Boolean(state.selectedNoteId);
     const hasMergeCandidate = Boolean(state.pianoRollMergeCandidateId) && state.pianoRollMergeCandidateId !== state.selectedNoteId;
     if (elements.splitNoteButton) elements.splitNoteButton.disabled = !hasSelection;
     if (elements.mergeNoteButton) elements.mergeNoteButton.disabled = !(hasSelection && hasMergeCandidate);
+    if (elements.quantizeNoteButton) elements.quantizeNoteButton.disabled = !hasSelection;
     if (elements.deleteNoteButton) elements.deleteNoteButton.disabled = !hasSelection;
   }
 
@@ -1614,18 +1696,43 @@
       }
     }
     if (state.analysis && state.duration > 0) {
-      const targetSpacing = 86;
-      const rawStep = state.duration / Math.max(1, Math.floor(width / targetSpacing));
-      const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
-      const step = candidates.find(value => value >= rawStep) || 120;
-      ctx.strokeStyle = border;
+      // P1.2 轮 3：垂直网格按当前 snap 网格绘制（含附点与 Swing）。
+      // 无 snap 时回退到固定秒数网格；有 snap 时按网格点画，swing 偏移的奇数点用更浅色。
+      const interval = snapIntervalSeconds();
+      const tempo = topTempoCandidate();
       ctx.lineWidth = 1;
-      for (let time = 0; time <= state.duration + 1e-6; time += step) {
-        const x = (time / state.duration) * width;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
+      if (interval > 0 && tempo) {
+        const origin = finiteNumber(tempo.first_beat_seconds);
+        const totalGrids = Math.ceil((state.duration - origin) / interval) + 2;
+        for (let i = -1; i <= totalGrids; i += 1) {
+          const baseTime = origin + i * interval;
+          if (baseTime < -0.001 || baseTime > state.duration + 0.001) continue;
+          const swingOffset = swingOffsetForIndex(i, interval);
+          const time = baseTime + swingOffset;
+          if (time < -0.001 || time > state.duration + 0.001) continue;
+          const x = (time / state.duration) * width;
+          // 偶数（含 0）= 强线，奇数 + 无 swing = 中等线，奇数 + swing = 浅线
+          const isStrong = i % 2 === 0;
+          const isSwung = swingOffset > 0;
+          ctx.strokeStyle = isStrong ? border : (isSwung ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.28)");
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+        }
+      } else {
+        const targetSpacing = 86;
+        const rawStep = state.duration / Math.max(1, Math.floor(width / targetSpacing));
+        const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
+        const step = candidates.find(value => value >= rawStep) || 120;
+        ctx.strokeStyle = border;
+        for (let time = 0; time <= state.duration + 1e-6; time += step) {
+          const x = (time / state.duration) * width;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+        }
       }
     }
   }
@@ -2455,7 +2562,12 @@
           confidence: note.confidence,
           source: note.source,
         })),
-        preferences: { snap_mode: state.snapMode, continuous_lyrics: state.continuousLyrics },
+        preferences: {
+          snap_mode: state.snapMode,
+          continuous_lyrics: state.continuousLyrics,
+          dotted_snap: state.dottedSnap,
+          swing_amount: state.swingAmount,
+        },
       },
     };
     bridge.downloadJson("miku-workbench-project.json", project);
@@ -2712,10 +2824,18 @@
     state.chordOverrides = overrides;
 
     const preferences = editing.preferences && typeof editing.preferences === "object" ? editing.preferences : {};
-    if (new Set(["beat", "half-beat", "quarter-beat", "none"]).has(preferences.snap_mode)) state.snapMode = preferences.snap_mode;
+    // P1.2 轮 3：偏好集合扩展，接受新网格与 swing 设置；旧版项目缺失时回退默认。
+    if (new Set(["beat", "half-beat", "quarter-beat", "eighth-beat", "triplet-half", "triplet-quarter", "none"]).has(preferences.snap_mode)) {
+      state.snapMode = preferences.snap_mode;
+    }
     state.continuousLyrics = preferences.continuous_lyrics !== false;
+    state.dottedSnap = preferences.dotted_snap === true;
+    const swingValue = Number(preferences.swing_amount);
+    state.swingAmount = Number.isFinite(swingValue) ? Math.max(0, Math.min(0.7, swingValue)) : 0;
     elements.snapGrid.value = state.snapMode;
     elements.continuousLyrics.checked = state.continuousLyrics;
+    if (elements.dottedSnap) elements.dottedSnap.checked = state.dottedSnap;
+    if (elements.swingAmount) elements.swingAmount.value = String(state.swingAmount);
     const selection = editing.selection || {};
     return { selection };
   }
@@ -2736,13 +2856,9 @@
       setStatus("已导入 0.1.0 项目并迁移到 0.2.0 共享 anchor 模型；请重新选择本地 WAV 才能播放。", "success");
     } else {
       // 0.2.0 项目：直接加载 anchor 与 region
+      // 注意 importAnchorsAndRegions 内部已处理 editing.preferences，这里只取 selection。
       importAnchorsAndRegions(candidate, analysis);
       const editing = candidate.editing || {};
-      const preferences = editing.preferences && typeof editing.preferences === "object" ? editing.preferences : {};
-      if (new Set(["beat", "half-beat", "quarter-beat", "none"]).has(preferences.snap_mode)) state.snapMode = preferences.snap_mode;
-      state.continuousLyrics = preferences.continuous_lyrics !== false;
-      elements.snapGrid.value = state.snapMode;
-    elements.continuousLyrics.checked = state.continuousLyrics;
       const selection = editing.selection || {};
       setSelection(finiteNumber(selection.start), finiteNumber(selection.end), false);
       setStatus("项目已导入；分析和编辑状态已恢复，请重新选择本地 WAV 才能播放。", "success");
@@ -3076,6 +3192,7 @@
   }
   if (elements.splitNoteButton) elements.splitNoteButton.addEventListener("click", splitSelectedNote);
   if (elements.mergeNoteButton) elements.mergeNoteButton.addEventListener("click", mergeSelectedNotes);
+  if (elements.quantizeNoteButton) elements.quantizeNoteButton.addEventListener("click", quantizeSelectedNote);
   if (elements.deleteNoteButton) elements.deleteNoteButton.addEventListener("click", () => {
     if (state.selectedNoteId) deleteNote(state.selectedNoteId);
   });
@@ -3156,6 +3273,23 @@
     if (state.selection.end > state.selection.start) setSelection(state.selection.start, state.selection.end, true, true);
     else setStatus(`吸附已切换为：${event.target.options[event.target.selectedIndex].textContent}。`, "success");
   });
+  if (elements.dottedSnap) {
+    elements.dottedSnap.addEventListener("change", event => {
+      state.dottedSnap = event.target.checked;
+      const swingNote = state.swingAmount ? "（与 Swing 叠加）" : "";
+      setStatus(state.dottedSnap ? `附点已开启：网格拉长 1.5 倍${swingNote}。` : "附点已关闭。", "success");
+    });
+  }
+  if (elements.swingAmount) {
+    elements.swingAmount.addEventListener("input", event => {
+      state.swingAmount = Number(event.target.value);
+    });
+    elements.swingAmount.addEventListener("change", event => {
+      const value = Number(event.target.value);
+      const percent = Math.round(value * 100);
+      setStatus(value === 0 ? "Swing 已关闭：直八分。" : `Swing 已设置为 ${percent}%。`, "success");
+    });
+  }
   elements.continuousLyrics.addEventListener("change", event => {
     state.continuousLyrics = event.target.checked;
     setStatus(state.continuousLyrics ? "连续歌词区已开启：相邻区域共享边界，移动会同步两侧。" : "连续歌词区已关闭：允许显式休止和空白。", "success");

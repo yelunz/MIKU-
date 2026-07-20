@@ -4,7 +4,7 @@
   "working_title": true,
   "phase": "p1-audio-workbench-technical-validation",
   "status": "in-progress",
-  "last_updated": "2026-07-20T23:30:00+08:00",
+  "last_updated": "2026-07-21T00:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "pending-commit",
@@ -91,10 +91,10 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p1.2-r2-piano-roll-note-events",
+      "status": "runnable-interaction-prototype-p1.2-r3-quantize-grid-dotted-swing",
       "editor_interactions": [
         "space-play-pause",
-        "beat-snap-1-1-2-1-4",
+        "beat-snap-1-1-2-1-4-1-8-and-triplet",
         "alt-temporary-snap-bypass",
         "selection-edge-handles",
         "keyboard-edge-nudge",
@@ -109,7 +109,8 @@
         "playhead-auto-scroll-with-1.5s-user-scroll-grace",
         "field-level-lock-on-lyric-rest-and-chord-with-undo-and-persistence",
         "stem-mixer-with-mute-solo-gain-pan-and-web-audio-api-on-master",
-        "piano-roll-with-create-move-stretch-split-merge-note-events"
+        "piano-roll-with-create-move-stretch-split-merge-note-events",
+        "quantize-grid-with-dotted-1-8-triplet-and-swing"
       ],
       "verified_environment": "windows-edge"
     }
@@ -187,8 +188,7 @@
     "docs/MULTITRACK_COMPOSITION_DESIGN.md"
   ],
   "next_actions": [
-    "run-p1.1-and-p1.2-r1-r2-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-and-project-roundtrip",
-    "implement-p1.2-r3-quantize-back-beat-triplet-dotted-swing-grid",
+    "run-p1.1-and-p1.2-r1-r2-r3-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-and-project-roundtrip",
     "implement-p1.2-r4-nondestructive-mix-parameters-and-original-vs-resynth-preview-toggle",
     "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
     "wrap-stable-multitrack-workbench-in-minimal-electron-validation-shell",

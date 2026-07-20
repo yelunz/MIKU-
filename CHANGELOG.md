@@ -28,6 +28,7 @@
 - 新增字段级锁定：歌词、休止、和弦修正可在检查器勾选"锁定"防止未来重生成覆盖；锁定状态随 EditGraph 快照、项目导出/导入一并持久化；锁定阻止删除与恢复原值，但允许用户主动编辑；时间轴块显示 🔒 标记。
 - 新增多轨 stem 混音器：默认 4 条 stem 轨（伴奏总览 / 鼓组 / 贝斯 / 其他乐器），每条可独立 mute / solo / gain / pan；伴奏总览通过 Web Audio API（GainNode + StereoPannerNode）真实生效，占位 stem 保存参数但不播放；混音参数随 EditGraph 快照、项目导出/导入一并持久化；独奏模式下未独奏轨道自动静音；拖动结束才记 undo 避免历史污染。
 - 新增钢琴卷帘与 NoteEvent 数据模型（P1.2 轮 2）：用户可在时间轴上手工创建、移动、拉伸、拆分和合并音符候选；音符引用 start/end anchor，与歌词/休止共享同一 anchor 表，相邻音符若边界对齐会自动复用 anchor；C2..C7 共 60 半音行高 14px；四种交互模式（move / stretch-start / stretch-end / create）统一在 noteDrag 状态机；source 字段区分 manual / transcription / generation，对应不同颜色；导入时严格校验 ID 唯一、anchor 引用、stem_id 集合、pitch / velocity / confidence 范围与 source 枚举；0.1.0 项目迁移时清空 notes。
+- 新增量化网格 + 附点 + 三连音 + Swing（P1.2 轮 3）：snap 网格扩展到 1/8 拍（直十六分）、1/3 拍（半拍三连音）和 1/6 拍（四分拍三连音）；附点 checkbox 把网格拉长 1.5 倍（三连音网格上不叠加）；Swing 滑块 0..0.7 把偶数细分网格的后半段向后推，三连音和整拍网格上不生效；钢琴卷帘 canvas 按当前 snap 网格绘制垂直线（swing 偏移的奇数点用浅色）；"量化"按钮把选中音符一次性对齐到当前网格；dotted_snap 与 swing_amount 随项目导出/导入一并持久化。
 
 ### Changed
 

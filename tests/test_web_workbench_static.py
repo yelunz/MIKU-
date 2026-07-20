@@ -434,11 +434,54 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn("elements.pianoRollStemSelect.addEventListener", self.javascript)
         self.assertIn("elements.splitNoteButton.addEventListener", self.javascript)
         self.assertIn("elements.mergeNoteButton.addEventListener", self.javascript)
+        self.assertIn("elements.quantizeNoteButton.addEventListener", self.javascript)
         self.assertIn("elements.deleteNoteButton.addEventListener", self.javascript)
         self.assertIn("elements.pianoRollGrid.addEventListener", self.javascript)
         # renderAll 调用 renderPianoRoll
         self.assertIn("renderPianoRoll()", self.javascript)
         self.assertIn("updatePianoRollToolButtons()", self.javascript)
+
+    def test_quantize_grid_dotted_and_swing_are_present(self) -> None:
+        # P1.2 轮 3：扩展 snap 网格到 1/8 拍 + 三连音
+        self.assertIn('value="eighth-beat"', self.html)
+        self.assertIn('value="triplet-half"', self.html)
+        self.assertIn('value="triplet-quarter"', self.html)
+        self.assertIn("1/3 拍（三连音）", self.html)
+        self.assertIn("1/6 拍（三连音）", self.html)
+        # 附点 checkbox + Swing 滑块
+        self.assertIn('id="dotted-snap"', self.html)
+        self.assertIn('id="swing-amount"', self.html)
+        self.assertIn("dottedSnap", self.javascript)
+        self.assertIn("swingAmount", self.javascript)
+        self.assertIn("elements.dottedSnap", self.javascript)
+        self.assertIn("elements.swingAmount", self.javascript)
+        # snap 网格函数支持所有网格
+        self.assertIn('case "eighth-beat"', self.javascript)
+        self.assertIn('case "triplet-half"', self.javascript)
+        self.assertIn('case "triplet-quarter"', self.javascript)
+        # 附点 ×1.5
+        self.assertIn("interval = interval * 1.5", self.javascript)
+        # Swing 偏移函数
+        self.assertIn("function swingOffsetForIndex", self.javascript)
+        self.assertIn("state.swingAmount * (interval / 2)", self.javascript)
+        # snapTime 考虑 swing 候选点
+        self.assertIn("swingOffsetForIndex(oddIndex, interval)", self.javascript)
+        # 量化函数与按钮
+        self.assertIn("function quantizeSample", self.javascript)
+        self.assertIn("function quantizeSelectedNote", self.javascript)
+        self.assertIn('id="quantize-note-button"', self.html)
+        # 项目导出/导入包含 dotted_snap / swing_amount
+        self.assertIn("dotted_snap: state.dottedSnap", self.javascript)
+        self.assertIn("swing_amount: state.swingAmount", self.javascript)
+        self.assertIn("state.dottedSnap = preferences.dotted_snap === true", self.javascript)
+        self.assertIn("state.swingAmount = Number.isFinite(swingValue)", self.javascript)
+        # 偏好集合包含新网格
+        self.assertIn('"eighth-beat", "triplet-half", "triplet-quarter"', self.javascript)
+        # 钢琴卷帘 canvas 按 snap 网格绘制（含 swing 浅色）
+        self.assertIn("swingOffsetForIndex(i, interval)", self.javascript)
+        self.assertIn("isSwung", self.javascript)
+        # 量化按钮在工具按钮可用性中
+        self.assertIn("elements.quantizeNoteButton.disabled", self.javascript)
 
 
 

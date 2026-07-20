@@ -69,8 +69,15 @@
             <option value="beat">1 拍</option>
             <option value="half-beat" selected>1/2 拍</option>
             <option value="quarter-beat">1/4 拍</option>
+            <option value="eighth-beat">1/8 拍</option>
+            <option value="triplet-half">1/3 拍（三连音）</option>
+            <option value="triplet-quarter">1/6 拍（三连音）</option>
             <option value="none">关闭</option>
           </select>
+        </label>
+        <label class="inline-check"><input id="dotted-snap" type="checkbox"> 附点</label>
+        <label class="compact-control" for="swing-amount">Swing
+          <input id="swing-amount" type="range" min="0" max="0.7" step="0.05" value="0" title="Swing 比例（0 = 直八分，0.5 = 中等，0.7 = 强 swing）">
         </label>
         <label class="inline-check"><input id="continuous-lyrics" type="checkbox" checked> 连续歌词区不留小缝</label>
         <span class="shortcut-hint"><kbd>Space</kbd> 播放/暂停</span>
@@ -117,6 +124,7 @@
             </label>
             <button id="split-note-button" type="button" disabled title="把选中音符从中点一分为二">拆分音符</button>
             <button id="merge-note-button" type="button" disabled title="合并选中的两个相邻同音高音符">合并音符</button>
+            <button id="quantize-note-button" type="button" disabled title="把选中音符的起止边界对齐到当前吸附网格（含附点与 Swing）">量化</button>
             <button id="delete-note-button" type="button" class="danger" disabled title="删除选中音符（快捷键：Delete）">删除音符</button>
           </div>
         </header>
@@ -126,7 +134,7 @@
             <div id="piano-roll-grid" class="piano-roll-grid" role="group" aria-label="钢琴卷帘音符编辑区"></div>
           </div>
         </div>
-        <p class="piano-roll-footnote">在空白区域拖出新音符；点击音符选中并编辑；拖动音符移动；拖动音符左右边缘拉伸；Shift + 点击第二个音符设为合并候选；Delete 删除选中音符；Esc 取消当前拖动。</p>
+        <p class="piano-roll-footnote">在空白区域拖出新音符；点击音符选中并编辑；拖动音符移动；拖动音符左右边缘拉伸；Shift + 点击第二个音符设为合并候选；Delete 删除选中音符；Esc 取消当前拖动；"量化"按钮把选中音符对齐到当前网格（含 1/8、三连音、附点、Swing）。</p>
       </section>
 
       <div class="timeline-layout">
