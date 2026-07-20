@@ -1,7 +1,7 @@
 {
   "name": "miku-workbench",
-  "version": "0.5.0",
-  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.5.0 含 USTX 0.7 YAML 导出 + 实机验证夹具）",
+  "version": "0.6.0",
+  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.6.0 含 P4 完整编排 + P5 错误恢复 + USTX 0.7 + VOCALOID6 适配）",
   "main": "main.js",
   "author": "Miku 歌姬解放计划",
   "license": "UNLICENSED",
@@ -22,7 +22,7 @@
     "productName": "Miku-Workbench",
     "copyright": "Miku 歌姬解放计划",
     "directories": {
-      "output": "dist",
+      "output": "dist-v0.6.0",
       "buildResources": "build-resources"
     },
     "files": [
@@ -32,6 +32,8 @@
       "web-workbench/styles.css",
       "web-workbench/app.js",
       "web-workbench/desktop-bridge.js",
+      "web-workbench/onboarding.js",
+      "web-workbench/error-recovery.js",
       "web-workbench/README.md"
     ],
     "extraFiles": [
@@ -41,6 +43,27 @@
         "filter": [
           "basic-c-major-120-v1.analysis.json",
           "basic-c-major-120-v1.wav"
+        ]
+      },
+      {
+        "from": "../../fixtures/basic-c-major-120-v1",
+        "to": "fixtures/basic-c-major-120-v1",
+        "filter": [
+          "librosa-analysis-v2.json",
+          "ground-truth.json",
+          "README.md"
+        ]
+      },
+      {
+        "from": "../../fixtures/integration",
+        "to": "fixtures/integration",
+        "filter": [
+          "integration-fixture.json",
+          "integration-fixture.ustx",
+          "integration-fixture.mid",
+          "integration-fixture-sidecar.json",
+          "integration-fixture-vocaloid6.mid",
+          "integration-fixture-vocaloid6.mid.vocaloid6-loss.json"
         ]
       }
     ],

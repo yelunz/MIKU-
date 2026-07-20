@@ -33,8 +33,8 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(self.package_json["name"], "miku-workbench")
         self.assertEqual(self.package_json["main"], "main.js")
         self.assertEqual(self.package_json["private"], True)
-        # 版本号与项目 0.3.0 schema 一致；USTX 0.7 YAML 重写后桌面壳升到 0.5.0
-        self.assertEqual(self.package_json["version"], "0.5.0")
+        # 版本号与项目 0.4.0 schema 一致；P4 完整编排 + P5 错误恢复 + USTX 0.7 + VOCALOID6 适配后升到 0.6.0
+        self.assertEqual(self.package_json["version"], "0.6.0")
         # Electron 43.x 与 electron-builder 25.x 是 DESKTOP_STACK_SPIKE.md 决定的版本
         self.assertIn("electron", self.package_json["devDependencies"])
         self.assertRegex(
@@ -60,6 +60,9 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertIn("web-workbench/styles.css", files)
         self.assertIn("web-workbench/app.js", files)
         self.assertIn("web-workbench/desktop-bridge.js", files)
+        # v0.6.0：P5 新手引导 + 错误恢复模块必须随 asar 打包
+        self.assertIn("web-workbench/onboarding.js", files)
+        self.assertIn("web-workbench/error-recovery.js", files)
 
     def test_package_json_build_win_target_is_nsis_x64(self) -> None:
         win = self.package_json["build"]["win"]
@@ -68,12 +71,27 @@ class DesktopShellStaticTests(unittest.TestCase):
 
     def test_package_json_build_carries_fixtures_as_extra_files(self) -> None:
         # 打包后用户首次启动需要夹具，否则页面无法选择分析 JSON
+        # v0.6.0：extraFiles 扩展到 3 组 —— 生成夹具、基础夹具目录、集成夹具目录
         extra_files = self.package_json["build"]["extraFiles"]
-        self.assertEqual(len(extra_files), 1)
+        self.assertEqual(len(extra_files), 3)
+        # 第一组：生成夹具（分析 JSON + WAV）
         self.assertEqual(extra_files[0]["to"], "fixtures")
-        filters = extra_files[0]["filter"]
-        self.assertIn("basic-c-major-120-v1.analysis.json", filters)
-        self.assertIn("basic-c-major-120-v1.wav", filters)
+        filters0 = extra_files[0]["filter"]
+        self.assertIn("basic-c-major-120-v1.analysis.json", filters0)
+        self.assertIn("basic-c-major-120-v1.wav", filters0)
+        # 第二组：基础夹具目录（librosa 分析 v2 + 标准答案 + README）
+        self.assertEqual(extra_files[1]["to"], "fixtures/basic-c-major-120-v1")
+        filters1 = extra_files[1]["filter"]
+        self.assertIn("librosa-analysis-v2.json", filters1)
+        self.assertIn("ground-truth.json", filters1)
+        self.assertIn("README.md", filters1)
+        # 第三组：集成夹具目录（USTX/MIDI/SynthV sidecar/VOCALOID6 一致性样例）
+        self.assertEqual(extra_files[2]["to"], "fixtures/integration")
+        filters2 = extra_files[2]["filter"]
+        self.assertIn("integration-fixture.json", filters2)
+        self.assertIn("integration-fixture.ustx", filters2)
+        self.assertIn("integration-fixture.mid", filters2)
+        self.assertIn("integration-fixture-vocaloid6.mid", filters2)
 
     def test_main_js_enforces_security_boundaries(self) -> None:
         # contextIsolation 必须开启，渲染器不能直接访问 Node

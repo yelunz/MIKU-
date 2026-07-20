@@ -8,5 +8,6 @@ __pycache__/
 # PyInstaller build logs (environment-specific, not reproducible).
 logs/pyinstaller-build.log
 dist/
+dist-v0.6.0/
 build/
 *.spec.bak
