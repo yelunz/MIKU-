@@ -58,9 +58,12 @@ hiddenimports += collect_submodules('numba')
 hiddenimports += collect_submodules('scipy')
 hiddenimports += collect_submodules('sklearn')
 # 显式声明 tools.miku_analysis.librosa_backend（命名空间包兜底）。
+# P6: stem_separator；P7: transcriber 都需要显式声明。
 hiddenimports += [
     'tools.miku_analysis',
     'tools.miku_analysis.librosa_backend',
+    'tools.miku_analysis.stem_separator',
+    'tools.miku_analysis.transcriber',
     'soundfile',
     'soxr',
     '_soundfile',  # soundfile 的 C 扩展名

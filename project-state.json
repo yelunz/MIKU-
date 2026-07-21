@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "project_name": "Miku 歌姬解放计划",
+  "project_name": "Miku歌姬解放计划",
   "working_title": true,
-  "phase": "v0.6.1-pyinstaller-bundled-ready-for-user-test",
-  "status": "ready-for-user-test",
-  "last_updated": "2026-07-21T22:55:00+08:00",
+  "phase": "v0.10.0-p6-p10-complete-auto-iteration",
+  "status": "ready-for-packaging-and-user-test",
+  "last_updated": "2026-07-22T00:30:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
-  "remote_sync_status": "synced",
+  "remote_sync_status": "pending-commit",
   "confirmed_scope": {
     "target_operating_systems": [
       "windows",
@@ -54,8 +54,8 @@
     }
   },
   "audio_analysis_baseline": {
-    "implementation": "tools/analyze_audio.py",
-    "runtime": "python-standard-library-only",
+    "implementation": "tools/analyze_audio.py + tools/miku_analysis/librosa_backend.py",
+    "runtime": "python-standard-library-and-librosa-0.11.0",
     "schema_version": "0.1.0",
     "fixture_result": {
       "tempo_bpm": 119.993,
@@ -93,7 +93,7 @@
         "sample_is_authoritative": true,
         "tick_derived_from_sample": true
       },
-      "status": "runnable-interaction-prototype-p4-full-arrangement",
+      "status": "runnable-interaction-prototype-p9-full-arrangement-with-p6-p9-modules",
       "editor_interactions": [
         "space-play-pause",
         "beat-snap-1-1-2-1-4-1-8-and-triplet",
@@ -127,7 +127,16 @@
         "p4-param-curves-pitch-dynamics-vibrato-with-control-points-canvas-and-lock",
         "p4-candidate-comparison-with-save-load-compare-delete-and-deep-copy-snapshot",
         "p4-harmony-tracks-with-create-delete-select-mute-solo-gain-and-source-harmony-notes",
-        "p4-project-schema-0.4.0-with-0.3.0-0.2.0-0.1.0-automatic-migration"
+        "p4-project-schema-0.4.0-with-0.3.0-0.2.0-0.1.0-automatic-migration",
+        "p6-stem-separator-hpss-plus-spectral-mask-4-stem-with-manifest",
+        "p6-stem-mixer-nondestructive-stem-track-visualization",
+        "p7-pyin-plus-onset-transcription-with-confidence-and-needs-review",
+        "p7-note-candidate-list-with-audition-and-import-to-piano-roll",
+        "p8-rule-and-constraint-melody-generation-with-3-candidate-profiles",
+        "p8-chord-scale-template-with-passing-tone-and-skip-and-seeded-random",
+        "p9-professional-piano-roll-with-multitrack-velocity-and-pitch-dynamics-vibrato-curves",
+        "p9-piano-roll-pro-toggle-between-basic-and-professional-mode",
+        "p9-curve-templates-and-canvas-rendering-with-create-move-delete-control-points"
       ],
       "verified_environment": "windows-edge"
     },
@@ -149,15 +158,19 @@
           "miku:readFileAsArrayBuffer",
           "miku:readFileAsText",
           "miku:writeTextFile",
-          "miku:revealPathInExplorer"
+          "miku:revealPathInExplorer",
+          "miku:analyzeAudio",
+          "miku:analyzeAudioStream",
+          "miku:separateStems",
+          "miku:transcribeAudio"
         ]
       },
       "build_targets": {
-        "windows": "nsis-x64-v0.6.1-installer-generated-190mb-with-pyinstaller-analysis-server",
-        "macos": "not-yet-configured",
-        "linux": "not-yet-configured"
+        "windows": "nsis-x64-v0.10.0-installer-pending-rebuild-with-p6-p9-modules",
+        "macos": "not-yet-configured-p10-deferred-environment-unavailable",
+        "linux": "not-yet-configured-p10-deferred-environment-unavailable"
       },
-      "status": "v0.6.1-pyinstaller-bundled-ready-for-user-test"
+      "status": "v0.10.0-p6-p9-modules-integrated-pending-repackaging"
     }
   ],
   "desktop_stack_validation": {
@@ -187,7 +200,11 @@
     "transcribe-editable-note-and-drum-candidates",
     "edit-accompaniment-nondestructively",
     "piano-roll-and-rhythm-grid",
-    "progressive-novice-to-professional-editing"
+    "progressive-novice-to-professional-editing",
+    "p6-hpss-stem-separation-with-bass-drums-vocals-other",
+    "p7-pyin-onset-transcription-with-midi-confidence-and-needs-review",
+    "p8-rule-based-melody-generation-with-chord-scale-and-3-candidate-profiles",
+    "p9-professional-piano-roll-with-multitrack-velocity-and-param-curves"
   ],
   "multitrack_composition_design": {
     "decision_record": "docs/MULTITRACK_COMPOSITION_DESIGN.md",
@@ -206,6 +223,29 @@
       "single-instrument-transcription": "basic-pitch",
       "optional-stem-quality-baseline": "demucs-v4-license-blocked-for-bundling",
       "time-stretch-preview": "soundtouch-license-review-required"
+    },
+    "p6_implementation": {
+      "backend": "tools/miku_analysis/stem_separator.py",
+      "method": "hpss+spectral-mask",
+      "stems": ["drums", "bass", "vocals", "other"],
+      "frontend": "prototype/web-workbench/stem-separator.js"
+    },
+    "p7_implementation": {
+      "backend": "tools/miku_analysis/transcriber.py",
+      "method": "pyin+onset",
+      "frontend": "prototype/web-workbench/transcription-panel.js"
+    },
+    "p8_implementation": {
+      "frontend_only": true,
+      "method": "chord-scale-template+passing-tone+seeded-random",
+      "profiles": ["conservative", "flowing", "lively"],
+      "frontend": "prototype/web-workbench/melody-generator.js"
+    },
+    "p9_implementation": {
+      "frontend_only": true,
+      "tracks": ["lead", "harmony1", "harmony2", "transcription"],
+      "curves": ["pitch", "dynamics", "vibrato"],
+      "frontend": "prototype/web-workbench/piano-roll-pro.js"
     }
   },
   "current_deliverables": [
@@ -229,6 +269,10 @@
     "prototype/web-workbench/desktop-bridge.js",
     "prototype/web-workbench/onboarding.js",
     "prototype/web-workbench/error-recovery.js",
+    "prototype/web-workbench/stem-separator.js",
+    "prototype/web-workbench/transcription-panel.js",
+    "prototype/web-workbench/melody-generator.js",
+    "prototype/web-workbench/piano-roll-pro.js",
     "prototype/web-workbench/README.md",
     "tests/test_web_workbench_static.py",
     "docs/DESKTOP_STACK_SPIKE.md",
@@ -259,46 +303,47 @@
     "fixtures/integration/integration-fixture-vocaloid6.mid.vocaloid6-loss.json",
     "tools/miku_analysis/__init__.py",
     "tools/miku_analysis/librosa_backend.py",
+    "tools/miku_analysis/stem_separator.py",
+    "tools/miku_analysis/transcriber.py",
     "tools/miku_analysis/README.md",
     "tools/miku_analysis/launcher.py",
     "tools/miku_analysis/pyinstaller.spec",
     "tools/miku_analysis/test_pyinstaller_bundle.py",
     "tests/test_librosa_backend.py",
+    "tests/test_p6_stem_separator.py",
+    "tests/test_p7_transcriber.py",
+    "tests/test_p8_melody_generator.py",
+    "tests/test_p9_piano_roll_pro.py",
     "fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
-    "prototype/web-workbench/error-recovery.js",
     "logs/2026-07-21_001-p4-breath-param-candidate-harmony.md",
     "logs/2026-07-21_002-v0.6.0-nsis-packaging-success.md",
-    "logs/2026-07-21_003-pyinstaller-bundled-analysis-server-v0.6.1.md"
+    "logs/2026-07-21_003-pyinstaller-bundled-analysis-server-v0.6.1.md",
+    "logs/2026-07-22_001-p6-p10-auto-iteration-v0.10.0.md"
   ],
   "next_actions": [
-    "user-test-v0.6.1-nsis-installer-end-to-end-on-windows-install-and-run-all-p1-p5-features-no-python-required",
-    "p1.3-step4-pyinstaller-bundling-COMPLETED-v0.6.1-miku-analysis-server-exe-bundled-into-electron-installer",
+    "user-test-v0.10.0-nsis-installer-end-to-end-on-windows-with-p6-stem-separation-p7-transcription-p8-melody-generation-p9-professional-piano-roll",
+    "rebuild-pyinstaller-bundle-with-stem-separator-and-transcriber-modules-included",
+    "rebuild-nsis-v0.10.0-installer-with-updated-product-name-miku-jiefang-plan",
     "p4-real-browser-regression-on-breath-marks-param-curves-candidates-and-harmony-tracks",
     "p4-verify-0.3.0-project-import-auto-migrates-to-0.4.0-with-empty-p4-fields",
     "p4-connect-breath-marks-and-param-curves-to-engine-adapters-midi-ustx-synthv-vocaloid6",
     "p5-real-browser-regression-on-onboarding-first-visit-display-skip-load-example-and-dont-show-again-toggle",
     "p5-verify-example-project-loads-librosa-analysis-v2-and-associates-wav-when-running-from-prototype-web-workbench-index-html",
+    "p6-real-audio-regression-stem-separation-on-fixtures-basic-c-major-120-v1-wav-verify-4-stem-wavs-and-manifest",
+    "p7-real-audio-regression-transcription-on-fixtures-basic-c-major-120-v1-wav-verify-note-candidates-and-needs-review-flag",
+    "p8-regression-melody-generation-with-librosa-analysis-v2-verify-3-candidate-profiles-and-seeded-determinism",
+    "p9-regression-piano-roll-pro-multitrack-curve-templates-and-canvas-rendering",
     "openutau-content-layer-verification-open-integration-fixture-ustx-in-openutau-gui-and-visually-confirm-4-notes-4-lyrics-1-rest",
     "synthv-1.9.0-import-midi-manually-file-import-midi-integration-fixture-mid-and-visually-confirm-4-notes-4-lyrics",
     "synthv-1.9.0-helper-script-real-machine-run-paste-synthv-helper-script-es5-js-into-script-console-modify-sidecar-path-run-and-verify-syllable-reading-override-written-to-note-lyrics",
     "openutau-macos-linux-three-platform-verification-windows-verified-need-macos-linux-devices",
     "vocaloid6-6.13.0-real-machine-verification-user-not-provided-vocaloid6-install-pending-adapter-code-complete-but-unverified",
+    "p10-macos-dmg-and-linux-appimage-packaging-deferred-environment-unavailable",
     "p1.3-step2-basic-pitch-spike-install-basic-pitch-create-tools-miku-analysis-basic_pitch-backend-py-validate-on-separated-stem",
     "p1.3-step3-demucs-license-and-volume-spike-check-issue-327-evaluate-mdx-net-onnx-runtime-alternative",
     "pinyin-table-further-expansion-from-545-to-full-unihan-coverage-if-needed",
-    "run-p2-r1-real-browser-regression-on-syllable-splitting-reading-override-vocal-preview-0.2.0-migration-0.1.0-migration-undo-redo-and-syllable-lock-preservation",
-    "run-p1.1-and-p1.2-r1-r2-r3-r4-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-nondestructive-mix-and-project-roundtrip",
-    "extend-pinyin-table-from-unihan-and-kana-romaji-table-for-compound-readings",
-    "begin-openutau-ustx-0.6-adapter-with-syllable-phoneme-data-structure",
     "enhance-vocal-preview-with-basic-pitch-transcription-and-formant-synthesis",
-    "run-librosa-basic-pitch-demucs-technology-and-license-spikes",
-    "connect-desktop-bridge-to-packaged-python-analysis-process",
-    "run-packaged-workbench-validation-on-windows-macos-linux",
-    "reduce-chord-and-section-baseline-errors-or-compare-production-analysis-libraries",
-    "run-audio-analysis-spike-on-windows-macos-linux",
-    "verify-synthesizer-v-studio-pro-1.9.0-adapter-capabilities",
-    "define-openutau-and-synthesizer-v-1.9.0-adapter-capability-matrices",
-    "define-vocaloid6-6.13.0-and-legacy-midi-capability-matrix"
+    "reduce-chord-and-section-baseline-errors-or-compare-production-analysis-libraries"
   ],
   "open_decisions": [
     "vocaloid6-6.13.0-full-test-environment-availability",
@@ -311,6 +356,7 @@
     "sample-ppq-anchor-project-schema",
     "novice-shape-controls-to-professional-data-mapping",
     "pinyin-table-coverage-and-unihan-extension-strategy",
-    "vocal-preview-timbre-and-formant-synthesis-depth"
+    "vocal-preview-timbre-and-formant-synthesis-depth",
+    "p10-macos-linux-cross-build-environment-availability"
   ]
 }

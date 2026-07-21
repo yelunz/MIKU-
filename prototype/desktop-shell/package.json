@@ -1,7 +1,7 @@
 {
-  "name": "miku-workbench",
-  "version": "0.6.1",
-  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.6.1 含 P4 完整编排 + P5 错误恢复 + USTX 0.7 + VOCALOID6 适配 + PyInstaller 内置分析服务）",
+  "name": "miku-jiefang-plan",
+  "version": "0.10.0",
+  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.10.0 P5-P10 完整版：音源分离 + 自动转录 + 旋律生成 + 专业编辑器 + 多平台打包）",
   "main": "main.js",
   "author": "Miku 歌姬解放计划",
   "license": "UNLICENSED",
@@ -18,11 +18,11 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "app.miku.workbench",
-    "productName": "Miku-Workbench",
+    "appId": "app.miku.jiefang.plan",
+    "productName": "Miku歌姬解放计划",
     "copyright": "Miku 歌姬解放计划",
     "directories": {
-      "output": "dist-v0.6.1",
+      "output": "dist-v0.10.0",
       "buildResources": "build-resources"
     },
     "files": [
@@ -34,6 +34,10 @@
       "web-workbench/desktop-bridge.js",
       "web-workbench/onboarding.js",
       "web-workbench/error-recovery.js",
+      "web-workbench/stem-separator.js",
+      "web-workbench/transcription-panel.js",
+      "web-workbench/melody-generator.js",
+      "web-workbench/piano-roll-pro.js",
       "web-workbench/README.md"
     ],
     "extraFiles": [
@@ -83,7 +87,7 @@
           ]
         }
       ],
-      "artifactName": "Miku-Workbench-${version}-win-x64.${ext}",
+      "artifactName": "Miku歌姬解放计划-${version}-win-x64.${ext}",
       "signAndEditExecutable": false,
       "forceCodeSigning": false
     },
@@ -94,14 +98,14 @@
       "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Miku 歌姬工作台",
+      "shortcutName": "Miku歌姬解放计划",
       "installerLanguages": [
         "zh_CN",
         "en_US"
       ]
     },
     "portable": {
-      "artifactName": "Miku-Workbench-${version}-win-x64-portable.${ext}"
+      "artifactName": "Miku歌姬解放计划-${version}-win-x64-portable.${ext}"
     }
   }
 }

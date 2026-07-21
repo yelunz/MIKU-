@@ -403,12 +403,37 @@
         </aside>
       </div>
     </section>
+
+    <!-- P6-P9 工作台容器：由 app.js 在初始化时挂载对应模块 -->
+    <section id="p6-stem-separator-section" class="p6-stem-separator-section" hidden>
+      <div id="p6-stem-separator-container" class="p6-stem-separator-container"></div>
+    </section>
+    <section id="p7-transcription-section" class="p7-transcription-section" hidden>
+      <div id="p7-transcription-container" class="p7-transcription-container"></div>
+    </section>
+    <section id="p8-melody-generator-section" class="p8-melody-generator-section" hidden>
+      <div id="p8-melody-generator-container" class="p8-melody-generator-container"></div>
+    </section>
+    <section id="p9-piano-roll-pro-section" class="p9-piano-roll-pro-section" hidden>
+      <header class="section-header">
+        <p class="eyebrow">P9 · 专业级钢琴卷帘 + 参数曲线</p>
+        <h2>5. 专业编辑器（多轨 + velocity + Pitch/Dynamics/Vibrato 曲线）</h2>
+        <div class="section-actions">
+          <button type="button" id="toggle-piano-roll-pro">进入专业模式</button>
+        </div>
+      </header>
+      <div id="p9-piano-roll-pro-container" class="p9-piano-roll-pro-container"></div>
+    </section>
   </main>
 
   <audio id="audio-player" preload="metadata"></audio>
   <script src="error-recovery.js" defer></script>
   <script src="desktop-bridge.js" defer></script>
   <script src="onboarding.js" defer></script>
+  <script src="stem-separator.js" defer></script>
+  <script src="transcription-panel.js" defer></script>
+  <script src="melody-generator.js" defer></script>
+  <script src="piano-roll-pro.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

@@ -10,5 +10,6 @@ logs/pyinstaller-build.log
 dist/
 dist-v0.6.0/
 dist-v0.6.1/
+dist-v0.10.0/
 build/
 *.spec.bak

@@ -30,12 +30,12 @@ class DesktopShellStaticTests(unittest.TestCase):
         cls.pyinstaller_spec = (MIKU_ANALYSIS / "pyinstaller.spec").read_text(encoding="utf-8")
 
     def test_package_json_declares_electron_and_electron_builder(self) -> None:
-        self.assertEqual(self.package_json["name"], "miku-workbench")
+        # v0.10.0：产品名重命名为 miku-jiefang-plan（"Miku歌姬解放计划"）
+        self.assertEqual(self.package_json["name"], "miku-jiefang-plan")
         self.assertEqual(self.package_json["main"], "main.js")
         self.assertEqual(self.package_json["private"], True)
-        # 版本号与项目 0.4.0 schema 一致；P4 完整编排 + P5 错误恢复 + USTX 0.7 + VOCALOID6 适配
-        # v0.6.1 新增 PyInstaller 内置分析服务（miku-analysis-server.exe 随安装包分发）
-        self.assertEqual(self.package_json["version"], "0.6.1")
+        # 版本号：v0.10.0 = P6 音源分离 + P7 转录 + P8 旋律生成 + P9 专业钢琴卷帘
+        self.assertEqual(self.package_json["version"], "0.10.0")
         # Electron 43.x 与 electron-builder 25.x 是 DESKTOP_STACK_SPIKE.md 决定的版本
         self.assertIn("electron", self.package_json["devDependencies"])
         self.assertRegex(
@@ -43,6 +43,16 @@ class DesktopShellStaticTests(unittest.TestCase):
             r"\^43\.",
         )
         self.assertIn("electron-builder", self.package_json["devDependencies"])
+
+    def test_package_json_product_name_is_miku_jiefang_plan(self) -> None:
+        # v0.10.0：所有产品标识字段统一为 "Miku歌姬解放计划"
+        build = self.package_json["build"]
+        self.assertEqual(build["productName"], "Miku歌姬解放计划")
+        self.assertEqual(build["appId"], "app.miku.jiefang.plan")
+        self.assertEqual(build["copyright"], "Miku 歌姬解放计划")
+        self.assertIn("Miku歌姬解放计划", build["win"]["artifactName"])
+        self.assertEqual(build["nsis"]["shortcutName"], "Miku歌姬解放计划")
+        self.assertEqual(build["directories"]["output"], "dist-v0.10.0")
 
     def test_package_json_scripts_cover_dev_and_dist(self) -> None:
         scripts = self.package_json["scripts"]
@@ -64,6 +74,11 @@ class DesktopShellStaticTests(unittest.TestCase):
         # v0.6.0：P5 新手引导 + 错误恢复模块必须随 asar 打包
         self.assertIn("web-workbench/onboarding.js", files)
         self.assertIn("web-workbench/error-recovery.js", files)
+        # v0.10.0：P6-P9 4 个新模块必须随 asar 打包
+        self.assertIn("web-workbench/stem-separator.js", files)
+        self.assertIn("web-workbench/transcription-panel.js", files)
+        self.assertIn("web-workbench/melody-generator.js", files)
+        self.assertIn("web-workbench/piano-roll-pro.js", files)
 
     def test_package_json_build_win_target_is_nsis_x64(self) -> None:
         win = self.package_json["build"]["win"]
@@ -121,10 +136,28 @@ class DesktopShellStaticTests(unittest.TestCase):
             "miku:readFileAsText",
             "miku:writeTextFile",
             "miku:revealPathInExplorer",
+            # v0.10.0：P6 / P7 新增的 IPC 通道
+            "miku:separateStems",
+            "miku:transcribeAudio",
         ):
             self.assertIn(f'ipcMain.handle("{handler}"', self.main_js)
         # 主进程必须校验 filePath 参数，不能盲接渲染器传入的任意路径
         self.assertIn('typeof filePath !== "string"', self.main_js)
+
+    def test_main_js_implements_separate_stems_handler(self) -> None:
+        # P6：separateStems 函数必须存在并通过 JSON-RPC 调用 separate_stems 方法
+        self.assertIn("function separateStems", self.main_js)
+        self.assertIn('"separate_stems"', self.main_js)
+        # 必须复用 analysisProcess（与 analyze 共享同一个子进程）
+        self.assertIn("launchAnalysisProcess()", self.main_js)
+
+    def test_main_js_implements_transcribe_handler(self) -> None:
+        # P7：transcribeAudio 函数必须存在并通过 JSON-RPC 调用 transcribe 方法
+        self.assertIn("function transcribeAudio", self.main_js)
+        self.assertIn('"transcribe"', self.main_js)
+        # 必须支持 fmin_hz / fmax_hz 参数透传
+        self.assertIn("fmin_hz", self.main_js)
+        self.assertIn("fmax_hz", self.main_js)
 
     def test_main_js_handles_window_lifecycle(self) -> None:
         # macOS 重新激活时若没有窗口要新建
@@ -164,6 +197,16 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertIn("analyzeAudio: true", self.preload_js)
         self.assertIn("async analyzeAudio(inputPath, outputPath)", self.preload_js)
         self.assertIn('ipcRenderer.invoke("miku:analyzeAudio"', self.preload_js)
+
+    def test_preload_js_exposes_separate_stems_bridge(self) -> None:
+        # v0.10.0：P6 separateStems 必须在 bridge 上暴露
+        self.assertIn("async separateStems(inputPath, outputDir, manifestPath)", self.preload_js)
+        self.assertIn('ipcRenderer.invoke("miku:separateStems"', self.preload_js)
+
+    def test_preload_js_exposes_transcribe_audio_bridge(self) -> None:
+        # v0.10.0：P7 transcribeAudio 必须在 bridge 上暴露
+        self.assertIn("async transcribeAudio(inputPath, outputPath, params)", self.preload_js)
+        self.assertIn('ipcRenderer.invoke("miku:transcribeAudio"', self.preload_js)
 
     def test_main_js_registers_analyze_audio_ipc_handler(self) -> None:
         # 主进程必须注册 miku:analyzeAudio 白名单 IPC handler
@@ -253,6 +296,9 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertIn("miku-analysis-server", self.pyinstaller_spec)
         # 必须把 librosa_backend 显式列为 hiddenimport（命名空间包兜底）
         self.assertIn("tools.miku_analysis.librosa_backend", self.pyinstaller_spec)
+        # v0.10.0：P6 stem_separator + P7 transcriber 必须显式列为 hiddenimport
+        self.assertIn("tools.miku_analysis.stem_separator", self.pyinstaller_spec)
+        self.assertIn("tools.miku_analysis.transcriber", self.pyinstaller_spec)
         # 必须收集 numba / librosa / scipy / sklearn 子模块（动态导入兜底）
         self.assertIn("collect_submodules", self.pyinstaller_spec)
         for pkg in ("librosa", "numba", "scipy", "sklearn"):

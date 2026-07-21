@@ -225,6 +225,126 @@ ipcMain.handle("miku:analyzeAudioStream", async (event, inputPath, outputPath) =
   return await analyzeAudio(inputPath, outputPath);
 });
 
+// P6: 4-stem 音源分离。复用 analysisProcess，通过 JSON-RPC 调用 separate_stems。
+// inputPath 校验扩展名；outputDir 由调用方决定（通常是输入音频同级 .stems/ 目录）。
+function separateStems(inputPath, outputDir, manifestPath) {
+  return new Promise((resolve, reject) => {
+    if (typeof inputPath !== "string" || typeof outputDir !== "string") {
+      reject(new Error("inputPath and outputDir must be strings"));
+      return;
+    }
+    if (inputPath.length === 0 || outputDir.length === 0) {
+      reject(new Error("inputPath and outputDir must not be empty"));
+      return;
+    }
+    const inputExt = path.extname(inputPath).toLowerCase();
+    if (!ANALYSIS_ALLOWED_EXTENSIONS.includes(inputExt)) {
+      reject(new Error(`Unsupported input format: ${inputExt}. Allowed: ${ANALYSIS_ALLOWED_EXTENSIONS.join(", ")}`));
+      return;
+    }
+
+    let processHandle;
+    try {
+      processHandle = launchAnalysisProcess();
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const reqId = randomUUID();
+    const request = {
+      id: reqId,
+      method: "separate_stems",
+      params: { input_path: inputPath, output_dir: outputDir, manifest_path: manifestPath || "" },
+    };
+    const line = JSON.stringify(request) + "\n";
+
+    const timeout = setTimeout(() => {
+      analysisRequestQueue.delete(reqId);
+      if (analysisProcess && !analysisProcess.killed) {
+        analysisProcess.kill("SIGTERM");
+      }
+      reject(new Error("Stem separation timed out after 5 minutes"));
+    }, ANALYSIS_TIMEOUT_MS);
+
+    analysisRequestQueue.set(reqId, { resolve, reject, timeout });
+    if (analysisProcessReady) {
+      processHandle.stdin.write(line);
+    } else {
+      analysisPendingLines.push(line);
+    }
+  });
+}
+
+ipcMain.handle("miku:separateStems", async (event, inputPath, outputDir, manifestPath) => {
+  return await separateStems(inputPath, outputDir, manifestPath);
+});
+
+// P7: 自动音符转录。复用 analysisProcess，通过 JSON-RPC 调用 transcribe。
+function transcribeAudio(inputPath, outputPath, params) {
+  return new Promise((resolve, reject) => {
+    if (typeof inputPath !== "string" || typeof outputPath !== "string") {
+      reject(new Error("inputPath and outputPath must be strings"));
+      return;
+    }
+    if (inputPath.length === 0 || outputPath.length === 0) {
+      reject(new Error("inputPath and outputPath must not be empty"));
+      return;
+    }
+    const inputExt = path.extname(inputPath).toLowerCase();
+    if (!ANALYSIS_ALLOWED_EXTENSIONS.includes(inputExt)) {
+      reject(new Error(`Unsupported input format: ${inputExt}. Allowed: ${ANALYSIS_ALLOWED_EXTENSIONS.join(", ")}`));
+      return;
+    }
+    const outputExt = path.extname(outputPath).toLowerCase();
+    if (outputExt !== ".json") {
+      reject(new Error(`Output path must end with .json, got: ${outputExt}`));
+      return;
+    }
+
+    let processHandle;
+    try {
+      processHandle = launchAnalysisProcess();
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const reqId = randomUUID();
+    const safeParams = params && typeof params === "object" ? params : {};
+    const request = {
+      id: reqId,
+      method: "transcribe",
+      params: {
+        input_path: inputPath,
+        output_path: outputPath,
+        fmin_hz: typeof safeParams.fmin_hz === "number" ? safeParams.fmin_hz : 65.41,
+        fmax_hz: typeof safeParams.fmax_hz === "number" ? safeParams.fmax_hz : 1046.5,
+      },
+    };
+    const line = JSON.stringify(request) + "\n";
+
+    const timeout = setTimeout(() => {
+      analysisRequestQueue.delete(reqId);
+      if (analysisProcess && !analysisProcess.killed) {
+        analysisProcess.kill("SIGTERM");
+      }
+      reject(new Error("Transcription timed out after 5 minutes"));
+    }, ANALYSIS_TIMEOUT_MS);
+
+    analysisRequestQueue.set(reqId, { resolve, reject, timeout });
+    if (analysisProcessReady) {
+      processHandle.stdin.write(line);
+    } else {
+      analysisPendingLines.push(line);
+    }
+  });
+}
+
+ipcMain.handle("miku:transcribeAudio", async (event, inputPath, outputPath, params) => {
+  return await transcribeAudio(inputPath, outputPath, params);
+});
+
 function resolveWorkbenchPath() {
   // 开发模式：__dirname 是 prototype/desktop-shell/，web-workbench 是本地 junction。
   // 打包后：__dirname 是 resources/app/，web-workbench 已通过 files 字段打入 asar 同级。

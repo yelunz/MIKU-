@@ -64,8 +64,12 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
 #      ``librosa_backend`` 导入（spec 中 pathex=['.'] 让同目录可见）。
 try:
     from tools.miku_analysis.librosa_backend import analyze_audio
+    from tools.miku_analysis.stem_separator import separate_stems
+    from tools.miku_analysis.transcriber import transcribe_audio
 except ImportError:  # pragma: no cover - PyInstaller bundle fallback
     from librosa_backend import analyze_audio  # type: ignore[no-redef]
+    from stem_separator import separate_stems  # type: ignore[no-redef]
+    from transcriber import transcribe_audio  # type: ignore[no-redef]
 
 
 LAUNCHER_VERSION = "0.1.0"
@@ -176,6 +180,100 @@ def handle_request(request: dict) -> dict:
                 "output_path": output_path,
                 "schema_version": SCHEMA_VERSION,
                 "analyzer": result.get("analyzer", {}),
+            },
+        }
+
+    # P6: 4-stem 音源分离
+    if method == "separate_stems":
+        input_path = params.get("input_path", "")
+        output_dir = params.get("output_dir", "")
+        manifest_path = params.get("manifest_path", "")
+        if not isinstance(input_path, str) or not input_path:
+            return {
+                "id": req_id,
+                "error": {
+                    "code": "INVALID_PARAMS",
+                    "message": "input_path (non-empty string) is required",
+                },
+            }
+        if not isinstance(output_dir, str) or not output_dir:
+            return {
+                "id": req_id,
+                "error": {
+                    "code": "INVALID_PARAMS",
+                    "message": "output_dir (non-empty string) is required",
+                },
+            }
+        try:
+            with _stdout_redirected_to_stderr():
+                manifest = separate_stems(Path(input_path), Path(output_dir))
+                if manifest_path:
+                    _write_result_json(manifest_path, manifest)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "id": req_id,
+                "error": {
+                    "code": "ANALYSIS_FAILED",
+                    "message": str(exc) or exc.__class__.__name__,
+                    "traceback": traceback.format_exc(),
+                },
+            }
+        return {
+            "id": req_id,
+            "result": {
+                "status": "ok",
+                "output_dir": output_dir,
+                "manifest_path": manifest_path,
+                "stems": manifest.get("stems", {}),
+                "analyzer": manifest.get("analyzer", {}),
+            },
+        }
+
+    # P7: 自动音符转录
+    if method == "transcribe":
+        input_path = params.get("input_path", "")
+        output_path = params.get("output_path", "")
+        fmin_hz = float(params.get("fmin_hz", 65.41))
+        fmax_hz = float(params.get("fmax_hz", 1046.5))
+        if not isinstance(input_path, str) or not input_path:
+            return {
+                "id": req_id,
+                "error": {
+                    "code": "INVALID_PARAMS",
+                    "message": "input_path (non-empty string) is required",
+                },
+            }
+        if not isinstance(output_path, str) or not output_path:
+            return {
+                "id": req_id,
+                "error": {
+                    "code": "INVALID_PARAMS",
+                    "message": "output_path (non-empty string) is required",
+                },
+            }
+        try:
+            with _stdout_redirected_to_stderr():
+                manifest = transcribe_audio(Path(input_path), fmin_hz=fmin_hz, fmax_hz=fmax_hz)
+                _write_result_json(output_path, manifest)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "id": req_id,
+                "error": {
+                    "code": "ANALYSIS_FAILED",
+                    "message": str(exc) or exc.__class__.__name__,
+                    "traceback": traceback.format_exc(),
+                },
+            }
+        notes = manifest.get("notes", [])
+        needs_review_count = sum(1 for n in notes if n.get("needs_review"))
+        return {
+            "id": req_id,
+            "result": {
+                "status": "ok",
+                "output_path": output_path,
+                "note_count": len(notes),
+                "needs_review_count": needs_review_count,
+                "analyzer": manifest.get("analyzer", {}),
             },
         }
 

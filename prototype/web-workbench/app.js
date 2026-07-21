@@ -5886,4 +5886,190 @@
     if (elements.onboardingPanel) elements.onboardingPanel.hidden = true;
     if (elements.importPanel) elements.importPanel.hidden = false;
   }
+
+  // ========================================================================
+  // P6-P9 模块挂载与协调
+  // ------------------------------------------------------------------------
+  // 4 个新模块（stem-separator / transcription-panel / melody-generator /
+  // piano-roll-pro）通过 globalThis 暴露 renderPanel(container, ctx) 接口。
+  // app.js 在此处把它们挂到 index.html 预留的容器上，并订阅各模块发出的
+  // CustomEvent，把模块产物回写到 state，让导出/撤销流程能感知到 P6-P9 的结果。
+  // 模块挂载失败（例如脚本未加载）只记一条 console.warn，不阻塞主流程。
+  // ========================================================================
+  const p6Container = document.getElementById("p6-stem-separator-container");
+  const p7Container = document.getElementById("p7-transcription-container");
+  const p8Container = document.getElementById("p8-melody-generator-container");
+  const p9Container = document.getElementById("p9-piano-roll-pro-container");
+  const p6Section = document.getElementById("p6-stem-separator-section");
+  const p7Section = document.getElementById("p7-transcription-section");
+  const p8Section = document.getElementById("p8-melody-generator-section");
+  const p9Section = document.getElementById("p9-piano-roll-pro-section");
+  const toggleProBtn = document.getElementById("toggle-piano-roll-pro");
+
+  /** 当前已加载的音频路径（导入 WAV / 分析完成后更新）。 */
+  let currentAudioPathForP6P7 = null;
+  /** 当前已加载的分析 JSON（用于 P8 旋律生成读取和弦/节奏）。 */
+  let currentAnalysisForP8 = null;
+  /** P9 钢琴卷帘实例。 */
+  let pianoRollProInstance = null;
+
+  function makeP6Context() {
+    return {
+      inputPath: currentAudioPathForP6P7 || "",
+      onSeparated: (result) => {
+        // 把分离出的 vocals stem 路径回写到 state，供 P7 转录复用。
+        state.lastStemSeparation = result;
+      },
+    };
+  }
+
+  function makeP7Context() {
+    return {
+      inputPath: currentAudioPathForP6P7 || "",
+      onTranscribed: (result) => {
+        state.lastTranscription = result;
+      },
+    };
+  }
+
+  function makeP8Context() {
+    return {
+      analysis: currentAnalysisForP8 || state.analysis || null,
+      onAccepted: (notes) => {
+        state.lastMelody = notes;
+      },
+    };
+  }
+
+  function makeP9Context() {
+    return {
+      analysis: currentAnalysisForP8 || state.analysis || null,
+      onChange: (snapshot) => {
+        state.lastPianoRollPro = snapshot;
+      },
+    };
+  }
+
+  function mountP6() {
+    if (!p6Container) return;
+    const mod = globalThis.MikuStemSeparator;
+    if (!mod || typeof mod.renderPanel !== "function") {
+      console.warn("[P6] MikuStemSeparator not available, panel disabled");
+      return;
+    }
+    try {
+      mod.renderPanel(p6Container, makeP6Context());
+    } catch (err) {
+      console.error("[P6] renderPanel failed:", err);
+    }
+  }
+
+  function mountP7() {
+    if (!p7Container) return;
+    const mod = globalThis.MikuTranscriptionPanel;
+    if (!mod || typeof mod.renderPanel !== "function") {
+      console.warn("[P7] MikuTranscriptionPanel not available, panel disabled");
+      return;
+    }
+    try {
+      mod.renderPanel(p7Container, makeP7Context());
+    } catch (err) {
+      console.error("[P7] renderPanel failed:", err);
+    }
+  }
+
+  function mountP8() {
+    if (!p8Container) return;
+    const mod = globalThis.MikuMelodyGenerator;
+    if (!mod || typeof mod.renderPanel !== "function") {
+      console.warn("[P8] MikuMelodyGenerator not available, panel disabled");
+      return;
+    }
+    try {
+      mod.renderPanel(p8Container, makeP8Context());
+    } catch (err) {
+      console.error("[P8] renderPanel failed:", err);
+    }
+  }
+
+  function mountP9() {
+    if (!p9Container) return;
+    const mod = globalThis.MikuPianoRollPro;
+    if (!mod || typeof mod.PianoRollPro !== "function") {
+      console.warn("[P9] MikuPianoRollPro not available, panel disabled");
+      return;
+    }
+    if (pianoRollProInstance) return; // 已经挂载过
+    try {
+      pianoRollProInstance = new mod.PianoRollPro(p9Container, {
+        tracks: mod.DEFAULT_TRACKS || null,
+        onChange: (snapshot) => {
+          state.lastPianoRollPro = snapshot;
+          document.dispatchEvent(
+            new CustomEvent("miku:piano-roll-pro-changed", { detail: snapshot })
+          );
+        },
+      });
+      // 把分析结果里的拍号/速度喂给钢琴卷帘
+      if (state.analysis) {
+        pianoRollProInstance.updateTiming?.({
+          tempoBpm: state.analysis.tempo?.bpm || 120,
+          timeSignature: state.analysis.time_signature || [4, 4],
+        });
+      }
+    } catch (err) {
+      console.error("[P9] PianoRollPro init failed:", err);
+      pianoRollProInstance = null;
+    }
+  }
+
+  // 首次挂载（容器存在即挂；模块未就绪时上面会跳过）。
+  mountP6();
+  mountP7();
+  mountP8();
+  mountP9();
+
+  // 进入/退出专业模式 toggle：默认 P9 隐藏，点击按钮切换。
+  if (toggleProBtn && p9Section) {
+    toggleProBtn.addEventListener("click", () => {
+      const isHidden = p9Section.hasAttribute("hidden");
+      if (isHidden) {
+        p9Section.removeAttribute("hidden");
+        toggleProBtn.textContent = "退出专业模式";
+        if (!pianoRollProInstance) mountP9();
+      } else {
+        p9Section.setAttribute("hidden", "");
+        toggleProBtn.textContent = "进入专业模式";
+      }
+    });
+  }
+
+  // 当导入新音频或分析 JSON 后，更新上下文并重新挂载 P6/P7/P8。
+  document.addEventListener("miku:audio-loaded", (event) => {
+    const detail = event.detail || {};
+    if (detail.audioPath) currentAudioPathForP6P7 = detail.audioPath;
+    if (detail.analysis) {
+      currentAnalysisForP8 = detail.analysis;
+      // 同步给 P8 上下文（重新挂载以读取最新和弦/节奏）
+      mountP8();
+    }
+    // 重新挂载 P6/P7 以让按钮启用
+    mountP6();
+    mountP7();
+    // 同步给 P9
+    if (pianoRollProInstance && detail.analysis) {
+      pianoRollProInstance.updateTiming?.({
+        tempoBpm: detail.analysis.tempo?.bpm || 120,
+        timeSignature: detail.analysis.time_signature || [4, 4],
+      });
+    }
+  });
+
+  // 暴露 P6-P9 调试入口（仅 dev）
+  if (typeof window !== "undefined") {
+    window.__mikuP6P9 = {
+      get pianoRollPro() { return pianoRollProInstance; },
+      remountAll() { mountP6(); mountP7(); mountP8(); mountP9(); },
+    };
+  }
 })();

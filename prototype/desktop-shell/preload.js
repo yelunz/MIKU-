@@ -113,6 +113,32 @@ const bridge = Object.freeze({
   },
 
   /**
+   * P6: 4-stem 音源分离。把 inputPath 分离成 vocals/drums/bass/other 四个 stem
+   * WAV，写到 outputDir。可选 manifestPath 写 manifest.json。
+   *
+   * @param {string} inputPath 输入音频绝对路径
+   * @param {string} outputDir stem WAV 输出目录
+   * @param {string} [manifestPath] 可选 manifest.json 路径
+   * @returns {Promise<{ status: string, output_dir: string, stems: object, analyzer: object }>}
+   */
+  async separateStems(inputPath, outputDir, manifestPath) {
+    return await ipcRenderer.invoke("miku:separateStems", inputPath, outputDir, manifestPath);
+  },
+
+  /**
+   * P7: 自动音符转录。用 librosa.pyin + onset 从 inputPath 转录主旋律，
+   * 把 NoteEvent 候选 JSON 写到 outputPath。
+   *
+   * @param {string} inputPath 输入音频绝对路径（建议为 vocals stem）
+   * @param {string} outputPath 输出 JSON 绝对路径
+   * @param {{ fmin_hz?: number, fmax_hz?: number }} [params]
+   * @returns {Promise<{ status: string, output_path: string, note_count: number, needs_review_count: number, analyzer: object }>}
+   */
+  async transcribeAudio(inputPath, outputPath, params) {
+    return await ipcRenderer.invoke("miku:transcribeAudio", inputPath, outputPath, params);
+  },
+
+  /**
    * 计算 SHA-256。优先用 Node crypto，回退到 Web Crypto。
    * @param {ArrayBuffer} arrayBuffer
    * @returns {Promise<string>}

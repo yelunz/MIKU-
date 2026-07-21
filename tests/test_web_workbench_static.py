@@ -43,7 +43,22 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertEqual(len(self.parser.ids), len(set(self.parser.ids)))
         # P5：新增 error-recovery.js（全局错误边界）+ onboarding.js（引导页）。
         # 顺序固定：error-recovery 先注册全局错误处理器 → bridge 初始化桌面能力 → onboarding 决定首屏 → app.js 主程序。
-        self.assertEqual(self.parser.scripts, ["error-recovery.js", "desktop-bridge.js", "onboarding.js", "app.js"])
+        # P6-P9：在 onboarding.js 之后、app.js 之前注入 4 个新模块。
+        #   stem-separator.js (P6) → transcription-panel.js (P7) → melody-generator.js (P8) → piano-roll-pro.js (P9)
+        #   app.js 最后加载，在 IIFE 末尾通过 globalThis.MikuXxx 挂载这些模块到对应容器。
+        self.assertEqual(
+            self.parser.scripts,
+            [
+                "error-recovery.js",
+                "desktop-bridge.js",
+                "onboarding.js",
+                "stem-separator.js",
+                "transcription-panel.js",
+                "melody-generator.js",
+                "piano-roll-pro.js",
+                "app.js",
+            ],
+        )
         self.assertEqual(self.parser.stylesheets, ["styles.css"])
         self.assertNotRegex(self.html, r"https?://")
         self.assertNotRegex(self.styles, r"https?://")
