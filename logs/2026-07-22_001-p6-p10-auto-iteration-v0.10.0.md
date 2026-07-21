@@ -201,10 +201,43 @@
 5. **OpenUtau 三平台打开验证**：Windows 已验证；macOS/Linux 待用户提供设备。
 6. **物理文件夹改名**：用户需关闭 Trae 后手动 `Rename-Item "miku歌姬放计划" "Miku歌姬解放计划"`。
 
+## P10 最终验收总结
+
+### Windows x64（本机已交付）
+
+- **安装包**：`prototype/desktop-shell/dist-v0.10.0/Miku歌姬解放计划-0.10.0-win-x64.exe`（190.63 MB）
+- **架构**：x64，目标 Windows 10/11
+- **签名**：未签名（首版用户测试阶段接受 SmartScreen 警告）
+- **打包内容**：
+  1. Electron 43.1.1 运行时 + 主进程 + preload + web-workbench 全部 11 个前端文件
+  2. PyInstaller 打包的 miku-analysis-server.exe（288.13 MB，含 librosa/numba/scipy/sklearn + stem_separator + transcriber）
+  3. 3 组夹具（生成夹具 / 基础夹具目录 / 集成夹具目录，共 11 文件）
+
+### macOS / Linux（环境延后）
+
+- macOS DMG 与 Linux AppImage 需要对应平台环境才能产出
+- 本机为 Windows 10，无法交叉打包
+- 已在 `project-state.json` `open_decisions` 记录为 `p10-macos-linux-cross-build-environment-availability`
+- 用户提供 macOS / Linux 设备或配置 GitHub Actions CI 后即可完成
+
+### 建议用户测试路径
+
+1. 双击安装 `Miku歌姬解放计划-0.10.0-win-x64.exe`
+2. 启动后进入新手引导页（首次启动）
+3. 加载示例项目（basic-c-major-120-v1）
+4. 导入本地音频（wav/mp3/flac/ogg）
+5. 点击 "用 librosa 分析" → 等待 5-30 秒（首次 numba JIT 编译较慢）
+6. P6：点击 "分离人声/伴奏" → 等待 5-10 秒 → 检查 4 个 stem 文件
+7. P7：点击 "自动转录主旋律" → 检查 NoteEvent 列表
+8. P8：在工作台点击 "生成旋律候选" → 选择 conservative/flowing/lively 三套之一
+9. P9：点击 "进入专业模式" → 在钢琴卷帘中双击创建音符、Delete 删除、应用曲线模板
+10. 导出：MIDI / USTX / Synthesizer V / VOCALOID6（适配器代码已完成，USTX 已实机验证，VOCALOID6 待实机）
+
 ## Git 状态
 
 - 当前分支：`main`
-- 待提交：本日志列出的所有新增 + 修改文件
-- 远程：`https://github.com/yelunz/MIKU-.git`
-- 计划 commit：`feat(p6-p10): v0.10.0 P6 stem separation + P7 transcription + P8 melody generation + P9 professional piano roll + product rename to Miku歌姬解放计划`
-- 计划 push：`origin main`
+- 最新 commit：`1d1e1c0` `feat(p6-p10): v0.10.0 P6-P10 自动迭代 + 产品重命名为 Miku歌姬解放计划`
+- 提交统计：23 files changed, 2702 insertions(+), 46 deletions(-)
+- 远程同步：已 push 到 `origin/main`（472011f..1d1e1c0）
+- 远程地址：`https://github.com/yelunz/MIKU-.git`
+- 工作区状态：clean（无未提交变更）
