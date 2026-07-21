@@ -1,7 +1,7 @@
 {
   "name": "miku-jiefang-plan",
-  "version": "0.10.1",
-  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.10.1 P5-P10 完整版 + 引导页/示例项目加载修复）",
+  "version": "0.10.2",
+  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.10.2 P5-P10 完整版 + 修复 web-workbench junction 失效）",
   "main": "main.js",
   "author": "Miku 歌姬解放计划",
   "license": "UNLICENSED",
@@ -18,11 +18,11 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "app.miku.jiefang.plan",
+    "appId": "app.miku.jiefang-plan",
     "productName": "Miku歌姬解放计划",
     "copyright": "Miku 歌姬解放计划",
     "directories": {
-      "output": "dist-v0.10.1",
+      "output": "dist-v0.10.2",
       "buildResources": "build-resources"
     },
     "files": [

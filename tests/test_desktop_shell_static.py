@@ -34,8 +34,8 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(self.package_json["name"], "miku-jiefang-plan")
         self.assertEqual(self.package_json["main"], "main.js")
         self.assertEqual(self.package_json["private"], True)
-        # 版本号：v0.10.1 = 引导页/示例项目加载修复
-        self.assertEqual(self.package_json["version"], "0.10.1")
+        # 版本号：v0.10.2 = 修复 web-workbench junction 失效导致打包旧文件
+        self.assertEqual(self.package_json["version"], "0.10.2")
         # Electron 43.x 与 electron-builder 25.x 是 DESKTOP_STACK_SPIKE.md 决定的版本
         self.assertIn("electron", self.package_json["devDependencies"])
         self.assertRegex(
@@ -52,7 +52,7 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(build["copyright"], "Miku 歌姬解放计划")
         self.assertIn("Miku歌姬解放计划", build["win"]["artifactName"])
         self.assertEqual(build["nsis"]["shortcutName"], "Miku歌姬解放计划")
-        self.assertEqual(build["directories"]["output"], "dist-v0.10.1")
+        self.assertEqual(build["directories"]["output"], "dist-v0.10.2")
 
     def test_package_json_scripts_cover_dev_and_dist(self) -> None:
         scripts = self.package_json["scripts"]
