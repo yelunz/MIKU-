@@ -891,6 +891,28 @@ class WebWorkbenchStaticTests(unittest.TestCase):
         self.assertIn('id="load-example-button"', self.html)
         self.assertIn("加载示例项目", self.html)
 
+    def test_index_html_has_inline_load_example_button(self) -> None:
+        # v0.10.1：导入面板内联"加载示例项目"按钮，不依赖引导页也能加载示例
+        self.assertIn('id="load-example-inline-button"', self.html)
+        # v0.10.1："重新显示引导页"按钮，清除 localStorage 后重新显示引导卡片
+        self.assertIn('id="show-onboarding-button"', self.html)
+        self.assertIn("重新显示引导页", self.html)
+
+    def test_app_js_has_inline_load_example_and_show_onboarding_binding(self) -> None:
+        # v0.10.1：app.js 必须绑定内联按钮事件
+        self.assertIn('loadExampleInlineButton: byId("load-example-inline-button")', self.javascript)
+        self.assertIn('showOnboardingButton: byId("show-onboarding-button")', self.javascript)
+        # 必须调用 loadExampleProject() 响应内联按钮
+        self.assertIn("elements.loadExampleInlineButton.addEventListener", self.javascript)
+        # 必须清除 localStorage 并重新显示引导页
+        self.assertIn("localStorage.removeItem(ONBOARDING_KEY)", self.javascript)
+
+    def test_app_js_load_example_has_bridge_fallback(self) -> None:
+        # v0.10.1：fetch 失败时必须用 bridge.resolvePackagedFixture + readFileAsText 作为 fallback
+        # 绕过 Electron webSecurity 对 file:// 跨目录 fetch 的限制
+        self.assertIn("bridge.resolvePackagedFixture", self.javascript)
+        self.assertIn("bridgeWavCandidates", self.javascript)
+
     def test_index_html_has_skip_onboarding_button(self) -> None:
         # "跳过，直接进入工作台"按钮：触发 completeOnboarding(dontShowAgain.checked)
         self.assertIn('id="skip-onboarding-button"', self.html)

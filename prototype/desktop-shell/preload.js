@@ -155,6 +155,16 @@ const bridge = Object.freeze({
       return Array.from(new Uint8Array(digest), (v) => v.toString(16).padStart(2, "0")).join("");
     }
   },
+
+  /**
+   * v0.10.1: 解析打包后 fixtures 目录下文件的绝对路径。
+   * 用于绕过 Electron webSecurity 对 file:// 跨目录 fetch 的限制。
+   * @param {string} relativePath 相对 fixtures 目录的子路径（不允许 .. 或绝对路径）
+   * @returns {Promise<string>} 绝对路径；找不到返回 ""
+   */
+  async resolvePackagedFixture(relativePath) {
+    return await ipcRenderer.invoke("miku:resolvePackagedFixture", relativePath);
+  },
 });
 
 contextBridge.exposeInMainWorld("MikuDesktopBridge", bridge);

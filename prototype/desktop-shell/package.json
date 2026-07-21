@@ -1,7 +1,7 @@
 {
   "name": "miku-jiefang-plan",
-  "version": "0.10.0",
-  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.10.0 P5-P10 完整版：音源分离 + 自动转录 + 旋律生成 + 专业编辑器 + 多平台打包）",
+  "version": "0.10.1",
+  "description": "Miku 歌姬解放计划 · 桌面音频工作台（v0.10.1 P5-P10 完整版 + 引导页/示例项目加载修复）",
   "main": "main.js",
   "author": "Miku 歌姬解放计划",
   "license": "UNLICENSED",
@@ -22,7 +22,7 @@
     "productName": "Miku歌姬解放计划",
     "copyright": "Miku 歌姬解放计划",
     "directories": {
-      "output": "dist-v0.10.0",
+      "output": "dist-v0.10.1",
       "buildResources": "build-resources"
     },
     "files": [

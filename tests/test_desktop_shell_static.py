@@ -34,8 +34,8 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(self.package_json["name"], "miku-jiefang-plan")
         self.assertEqual(self.package_json["main"], "main.js")
         self.assertEqual(self.package_json["private"], True)
-        # 版本号：v0.10.0 = P6 音源分离 + P7 转录 + P8 旋律生成 + P9 专业钢琴卷帘
-        self.assertEqual(self.package_json["version"], "0.10.0")
+        # 版本号：v0.10.1 = 引导页/示例项目加载修复
+        self.assertEqual(self.package_json["version"], "0.10.1")
         # Electron 43.x 与 electron-builder 25.x 是 DESKTOP_STACK_SPIKE.md 决定的版本
         self.assertIn("electron", self.package_json["devDependencies"])
         self.assertRegex(
@@ -52,7 +52,7 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(build["copyright"], "Miku 歌姬解放计划")
         self.assertIn("Miku歌姬解放计划", build["win"]["artifactName"])
         self.assertEqual(build["nsis"]["shortcutName"], "Miku歌姬解放计划")
-        self.assertEqual(build["directories"]["output"], "dist-v0.10.0")
+        self.assertEqual(build["directories"]["output"], "dist-v0.10.1")
 
     def test_package_json_scripts_cover_dev_and_dist(self) -> None:
         scripts = self.package_json["scripts"]
@@ -139,10 +139,25 @@ class DesktopShellStaticTests(unittest.TestCase):
             # v0.10.0：P6 / P7 新增的 IPC 通道
             "miku:separateStems",
             "miku:transcribeAudio",
+            # v0.10.1：解析打包后 fixtures 绝对路径（绕过 webSecurity file:// fetch 限制）
+            "miku:resolvePackagedFixture",
         ):
             self.assertIn(f'ipcMain.handle("{handler}"', self.main_js)
         # 主进程必须校验 filePath 参数，不能盲接渲染器传入的任意路径
         self.assertIn('typeof filePath !== "string"', self.main_js)
+
+    def test_main_js_implements_resolve_packaged_fixture_handler(self) -> None:
+        # v0.10.1：miku:resolvePackagedFixture 必须用 path.dirname(process.resourcesPath)
+        # 定位安装根目录（extraFiles 的 to: "fixtures" 相对于安装根，不是 resources/）
+        self.assertIn("path.dirname(process.resourcesPath)", self.main_js)
+        # 必须防路径穿越（拒绝 .. 和绝对路径）
+        self.assertIn('relativePath.includes("..")', self.main_js)
+        self.assertIn("path.isAbsolute(relativePath)", self.main_js)
+
+    def test_preload_js_exposes_resolve_packaged_fixture_bridge(self) -> None:
+        # v0.10.1：bridge 必须暴露 resolvePackagedFixture 方法
+        self.assertIn("async resolvePackagedFixture(relativePath)", self.preload_js)
+        self.assertIn('ipcRenderer.invoke("miku:resolvePackagedFixture"', self.preload_js)
 
     def test_main_js_implements_separate_stems_handler(self) -> None:
         # P6：separateStems 函数必须存在并通过 JSON-RPC 调用 separate_stems 方法

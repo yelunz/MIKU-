@@ -700,6 +700,11 @@
     // P1.3 步骤 4：librosa 分析按钮（仅 Electron 模式可见，由 capabilities.analyzeAudio 控制）。
     librosaAnalysisRow: byId("librosa-analysis-row"),
     librosaAnalyzeButton: byId("librosa-analyze-button"),
+    // v0.10.1：导入面板内联"加载示例项目"与"重新显示引导页"按钮。
+    // 用户若未看到引导页（localStorage 已标记完成 / 升级安装 / 引导页被跳过），
+    // 仍能从导入面板一键加载示例项目或重新打开引导页。
+    loadExampleInlineButton: byId("load-example-inline-button"),
+    showOnboardingButton: byId("show-onboarding-button"),
     status: byId("status"),
     workbench: byId("workbench"),
     audio: byId("audio-player"),
@@ -1434,11 +1439,22 @@
   // WAV 关联是可选的：fetch 失败不影响示例分析 JSON 加载，只是没有音频播放。
   async function loadExampleProject() {
     setStatus("正在加载示例项目…", "");
+    // v0.10.1：补充 Electron 打包后的实际 fixtures 路径。
+    // 打包后 app.asar 在 resources/app.asar，fixtures 在 win-unpacked/fixtures/
+    // （extraFiles 的 to: "fixtures" 相对于安装根目录，不是 resources/）。
+    // 从 app.asar/web-workbench/index.html 出发：
+    //   ../  = app.asar/（asar 内部根）
+    //   ../../ = resources/（物理文件系统）
+    //   ../../../ = win-unpacked/（安装根目录）← fixtures 实际位置
+    // 注意：Electron webSecurity=true 可能阻止 file:// 跨目录 fetch，
+    // 所以 fetch 失败时用 bridge.resolvePackagedFixture + readFileAsText 作为 fallback。
     const analysisCandidates = [
       "../../fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
       "../fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
+      "../../../fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
       "../../fixtures/integration/integration-fixture.json",
       "../fixtures/integration/integration-fixture.json",
+      "../../../fixtures/integration/integration-fixture.json",
     ];
     let analysisText = null;
     let loadedFromIntegration = false;
@@ -1452,6 +1468,26 @@
         }
       } catch (e) {
         // fetch 失败（CORS / file:// 受限 / 路径不对），尝试下一条候选路径。
+      }
+    }
+    // v0.10.1 fallback：fetch 全部失败时，用 bridge 通过 Node fs 读取打包后 fixtures。
+    // 这绕过了 Electron webSecurity 对 file:// 跨目录 fetch 的限制。
+    if (!analysisText && bridge && typeof bridge.resolvePackagedFixture === "function") {
+      const fixtureCandidates = [
+        "basic-c-major-120-v1/librosa-analysis-v2.json",
+        "integration/integration-fixture.json",
+      ];
+      for (const relPath of fixtureCandidates) {
+        try {
+          const absPath = await bridge.resolvePackagedFixture(relPath);
+          if (absPath && typeof bridge.readFileAsText === "function") {
+            analysisText = await bridge.readFileAsText(absPath);
+            loadedFromIntegration = relPath.includes("integration-fixture");
+            if (analysisText) break;
+          }
+        } catch (e) {
+          // bridge 读取失败，继续尝试下一条
+        }
       }
     }
     if (!analysisText) {
@@ -1488,9 +1524,18 @@
   // 尝试关联示例 WAV。fixtures/.generated/basic-c-major-120-v1.wav 是 50 秒 C 大调 120 BPM
   // 无人声伴奏，与分析 JSON 时长一致。fetch 失败时静默跳过（用户可手动选择 WAV）。
   async function tryAssociateExampleAudio() {
+    // v0.10.1：补充 Electron 打包后的实际路径（见 loadExampleProject 注释）。
     const wavCandidates = [
       "../../fixtures/.generated/basic-c-major-120-v1.wav",
       "../fixtures/.generated/basic-c-major-120-v1.wav",
+      "../../../fixtures/.generated/basic-c-major-120-v1.wav",
+      "../../fixtures/basic-c-major-120-v1.wav",
+      "../fixtures/basic-c-major-120-v1.wav",
+      "../../../fixtures/basic-c-major-120-v1.wav",
+    ];
+    // v0.10.1 fallback：用 bridge 通过 Node fs 读取 WAV。
+    const bridgeWavCandidates = [
+      "basic-c-major-120-v1.wav",
     ];
     for (const candidate of wavCandidates) {
       try {
@@ -1503,6 +1548,22 @@
         return;
       } catch (e) {
         // 忽略；继续尝试下一条候选路径。
+      }
+    }
+    // v0.10.1 fallback：fetch 全部失败时，用 bridge 通过 Node fs 读取 WAV。
+    if (bridge && typeof bridge.resolvePackagedFixture === "function" && typeof bridge.readFileAsArrayBuffer === "function") {
+      for (const relPath of bridgeWavCandidates) {
+        try {
+          const absPath = await bridge.resolvePackagedFixture(relPath);
+          if (!absPath) continue;
+          const uint8 = await bridge.readFileAsArrayBuffer(absPath);
+          if (!uint8 || uint8.byteLength === 0) continue;
+          const file = new File([uint8], "basic-c-major-120-v1.wav", { type: "audio/wav" });
+          await handleAudioFile(file);
+          return;
+        } catch (e) {
+          // bridge 读取失败，继续尝试下一条
+        }
       }
     }
   }
@@ -4059,6 +4120,37 @@
       setStatus(`示例项目加载失败：${error.message}`, "error");
     }
   });
+
+  // v0.10.1：导入面板内联"加载示例项目"按钮。
+  // 用户若未看到引导页（localStorage 已标记完成 / 升级安装覆盖 / 引导页被跳过），
+  // 仍能从导入面板一键加载示例项目，无需手动在文件选择器里翻找 fixtures 目录。
+  if (elements.loadExampleInlineButton) {
+    elements.loadExampleInlineButton.addEventListener("click", async () => {
+      elements.loadExampleInlineButton.disabled = true;
+      try {
+        await loadExampleProject();
+      } catch (error) {
+        setStatus(`示例项目加载失败：${error.message}`, "error");
+      } finally {
+        elements.loadExampleInlineButton.disabled = false;
+      }
+    });
+  }
+
+  // v0.10.1："重新显示引导页"按钮。清除 localStorage 完成标记后显示引导卡片。
+  // 解决用户升级安装后引导页不再显示、但又想看引导的问题。
+  if (elements.showOnboardingButton) {
+    elements.showOnboardingButton.addEventListener("click", () => {
+      try {
+        localStorage.removeItem(ONBOARDING_KEY);
+      } catch (e) {
+        // localStorage 不可用时静默降级；仍尝试显示引导卡片。
+      }
+      if (elements.onboardingPanel) elements.onboardingPanel.hidden = false;
+      if (elements.importPanel) elements.importPanel.hidden = true;
+      if (elements.workbench) elements.workbench.hidden = true;
+    });
+  }
 
   // P5 错误恢复事件绑定：草稿恢复 + 强制自动保存。
   document.addEventListener("miku:restore-draft", handleRestoreDraft);

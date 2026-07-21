@@ -465,6 +465,38 @@ ipcMain.handle("miku:revealPathInExplorer", async (event, filePath) => {
   return true;
 });
 
+// v0.10.1 IPC: 解析打包后 fixtures 目录下的文件绝对路径。
+// 渲染器用此路径 + bridge.readFileAsText / readFileAsArrayBuffer 读取示例项目，
+// 绕过 Electron webSecurity 对 file:// 跨目录 fetch 的限制。
+// relativePath 例如 "basic-c-major-120-v1/librosa-analysis-v2.json"。
+// 查找顺序：
+//   1. <安装根>/fixtures/<relativePath>（打包后：win-unpacked/fixtures/，
+//      process.resourcesPath 是 <安装根>/resources/，取上一层得安装根）
+//   2. __dirname/../../fixtures/<relativePath>（开发模式：desktop-shell/../fixtures/）
+//   3. __dirname/../fixtures/<relativePath>（备用）
+// 返回找到的绝对路径字符串；找不到返回空字符串。
+ipcMain.handle("miku:resolvePackagedFixture", async (event, relativePath) => {
+  if (typeof relativePath !== "string" || relativePath.length === 0) return "";
+  // 防止路径穿越：只允许相对子路径，不允许 .. 或绝对路径。
+  if (relativePath.includes("..") || path.isAbsolute(relativePath)) return "";
+  const installRoot = path.dirname(process.resourcesPath);
+  const candidates = [
+    path.join(installRoot, "fixtures", relativePath),
+    path.join(__dirname, "..", "..", "fixtures", relativePath),
+    path.join(__dirname, "..", "fixtures", relativePath),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch (e) {
+      // continue searching
+    }
+  }
+  return "";
+});
+
 app.whenReady().then(() => {
   createWindow();
   app.on("activate", () => {

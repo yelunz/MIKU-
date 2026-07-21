@@ -11,5 +11,6 @@ dist/
 dist-v0.6.0/
 dist-v0.6.1/
 dist-v0.10.0/
+dist-v0.10.1/
 build/
 *.spec.bak
