@@ -40,7 +40,15 @@
 本轮只创建 spec 文件，**不实际执行 PyInstaller**。打包验证留作下一轮。
 """
 
+import os
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+# SPECPATH 是 PyInstaller 注入的变量，指向 spec 文件所在目录。
+# 用它构造绝对路径，避免 PyInstaller 把 spec 内的相对路径当成相对 spec
+# 文件所在目录解析（这会导致 tools/miku_analysis/launcher.py 被叠加成
+# tools/miku_analysis/tools/miku_analysis/launcher.py）。
+SPEC_DIR = SPECPATH if 'SPECPATH' in dir() else os.path.dirname(os.path.abspath(__file__))
+LAUNCHER_PATH = os.path.join(SPEC_DIR, 'launcher.py')
 
 # numba / librosa / scipy / sklearn 都有大量动态导入的子模块，PyInstaller
 # 静态分析无法完整发现，必须用 collect_submodules 显式收集。
@@ -66,6 +74,47 @@ datas += collect_data_files('librosa')
 datas += collect_data_files('numba')
 datas += collect_data_files('sklearn')
 
+# 排除分析后端不需要的重型依赖：
+#   * torch / torchvision：librosa 0.11.0 可选依赖，分析后端不使用
+#   * onnxruntime：basic-pitch 等推理后端依赖，P1.3 步骤 2 未完成
+#   * matplotlib / PIL / kiwisolver：librosa 的 plotting 子模块依赖，分析后端不画图
+#   * IPython / jedi / parso / prompt_toolkit / pyreadline3：交互式 shell 依赖
+#   * pandas：librosa 可选依赖，分析后端用 numpy 而非 pandas
+#   * cryptography / sqlalchemy / google：网络/数据库依赖
+#   * lxml / yaml / setuptools / tqdm / wcwidth：其他可选依赖
+# 注意：msgpack / greenlet 不能排除，numba 运行时需要 msgpack 做缓存序列化。
+# 这些排除能把打包体积从 ~780 MB 降到 ~300 MB 以下。
+excludes = [
+    'torch',
+    'torchvision',
+    'onnxruntime',
+    'matplotlib',
+    'PIL',
+    'kiwisolver',
+    'IPython',
+    'jedi',
+    'parso',
+    'prompt_toolkit',
+    'pyreadline3',
+    'pandas',
+    'cryptography',
+    'sqlalchemy',
+    'google',
+    'lxml',
+    'yaml',
+    'setuptools',
+    'tqdm',
+    'wcwidth',
+    'chardet',
+    'charset_normalizer',
+    'certifi',
+    'urllib3',
+    'requests',
+    'dateutil',
+    'pytz',
+    'contourpy',
+]
+
 # UPX 压缩排除项：numba 的 .bc 字节码和 .nbi 缓存不能被 UPX 压缩，否则
 # 运行时解码失败。PyInstaller 的 .pyz 也排除。
 upx_exclude = [
@@ -80,7 +129,7 @@ block_cipher = None
 
 
 a = Analysis(
-    ['tools/miku_analysis/launcher.py'],
+    [LAUNCHER_PATH],
     pathex=['.'],
     binaries=[],
     datas=datas,
@@ -88,7 +137,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

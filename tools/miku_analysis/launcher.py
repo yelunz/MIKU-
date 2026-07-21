@@ -44,6 +44,17 @@ import traceback
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 
+# Windows + PyInstaller 打包模式下，stdin/stdout/stderr 默认编码是 cp936（GBK），
+# 会导致 JSON-RPC 请求/响应中的中文路径乱码（surrogateescape 后变成 \udcXX）。
+# 强制重新配置为 UTF-8，保证 Electron 主进程（Node.js 默认 UTF-8）能正确往返。
+# Python 3.7+ 支持 sys.stdin.reconfigure(encoding="utf-8")。
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="surrogateescape")
+    except (AttributeError, ValueError):
+        # 某些 PyInstaller 版本下 stream 不支持 reconfigure，忽略。
+        pass
+
 # 兼容两种运行模式：
 #   1. 开发模式：``python -m tools.miku_analysis.launcher``（``tools`` 是
 #      命名空间包，``tools.miku_analysis`` 是普通子包）。

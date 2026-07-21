@@ -33,8 +33,9 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertEqual(self.package_json["name"], "miku-workbench")
         self.assertEqual(self.package_json["main"], "main.js")
         self.assertEqual(self.package_json["private"], True)
-        # 版本号与项目 0.4.0 schema 一致；P4 完整编排 + P5 错误恢复 + USTX 0.7 + VOCALOID6 适配后升到 0.6.0
-        self.assertEqual(self.package_json["version"], "0.6.0")
+        # 版本号与项目 0.4.0 schema 一致；P4 完整编排 + P5 错误恢复 + USTX 0.7 + VOCALOID6 适配
+        # v0.6.1 新增 PyInstaller 内置分析服务（miku-analysis-server.exe 随安装包分发）
+        self.assertEqual(self.package_json["version"], "0.6.1")
         # Electron 43.x 与 electron-builder 25.x 是 DESKTOP_STACK_SPIKE.md 决定的版本
         self.assertIn("electron", self.package_json["devDependencies"])
         self.assertRegex(
@@ -72,26 +73,30 @@ class DesktopShellStaticTests(unittest.TestCase):
     def test_package_json_build_carries_fixtures_as_extra_files(self) -> None:
         # 打包后用户首次启动需要夹具，否则页面无法选择分析 JSON
         # v0.6.0：extraFiles 扩展到 3 组 —— 生成夹具、基础夹具目录、集成夹具目录
+        # v0.6.1：新增第 0 组 PyInstaller 打包的 miku-analysis-server 目录（含 exe + 依赖）
         extra_files = self.package_json["build"]["extraFiles"]
-        self.assertEqual(len(extra_files), 3)
+        self.assertEqual(len(extra_files), 4)
+        # 第 0 组（v0.6.1 新增）：PyInstaller 打包的分析服务目录
+        self.assertEqual(extra_files[0]["to"], "miku-analysis-server")
+        self.assertEqual(extra_files[0]["from"], "../../dist/miku-analysis-server")
         # 第一组：生成夹具（分析 JSON + WAV）
-        self.assertEqual(extra_files[0]["to"], "fixtures")
-        filters0 = extra_files[0]["filter"]
-        self.assertIn("basic-c-major-120-v1.analysis.json", filters0)
-        self.assertIn("basic-c-major-120-v1.wav", filters0)
-        # 第二组：基础夹具目录（librosa 分析 v2 + 标准答案 + README）
-        self.assertEqual(extra_files[1]["to"], "fixtures/basic-c-major-120-v1")
+        self.assertEqual(extra_files[1]["to"], "fixtures")
         filters1 = extra_files[1]["filter"]
-        self.assertIn("librosa-analysis-v2.json", filters1)
-        self.assertIn("ground-truth.json", filters1)
-        self.assertIn("README.md", filters1)
-        # 第三组：集成夹具目录（USTX/MIDI/SynthV sidecar/VOCALOID6 一致性样例）
-        self.assertEqual(extra_files[2]["to"], "fixtures/integration")
+        self.assertIn("basic-c-major-120-v1.analysis.json", filters1)
+        self.assertIn("basic-c-major-120-v1.wav", filters1)
+        # 第二组：基础夹具目录（librosa 分析 v2 + 标准答案 + README）
+        self.assertEqual(extra_files[2]["to"], "fixtures/basic-c-major-120-v1")
         filters2 = extra_files[2]["filter"]
-        self.assertIn("integration-fixture.json", filters2)
-        self.assertIn("integration-fixture.ustx", filters2)
-        self.assertIn("integration-fixture.mid", filters2)
-        self.assertIn("integration-fixture-vocaloid6.mid", filters2)
+        self.assertIn("librosa-analysis-v2.json", filters2)
+        self.assertIn("ground-truth.json", filters2)
+        self.assertIn("README.md", filters2)
+        # 第三组：集成夹具目录（USTX/MIDI/SynthV sidecar/VOCALOID6 一致性样例）
+        self.assertEqual(extra_files[3]["to"], "fixtures/integration")
+        filters3 = extra_files[3]["filter"]
+        self.assertIn("integration-fixture.json", filters3)
+        self.assertIn("integration-fixture.ustx", filters3)
+        self.assertIn("integration-fixture.mid", filters3)
+        self.assertIn("integration-fixture-vocaloid6.mid", filters3)
 
     def test_main_js_enforces_security_boundaries(self) -> None:
         # contextIsolation 必须开启，渲染器不能直接访问 Node
@@ -239,8 +244,11 @@ class DesktopShellStaticTests(unittest.TestCase):
         self.assertIn("sys.stdout", self.launcher_py)
 
     def test_pyinstaller_spec_entry_and_hidden_imports(self) -> None:
-        # spec 入口必须是 launcher.py
-        self.assertIn("tools/miku_analysis/launcher.py", self.pyinstaller_spec)
+        # spec 入口必须是 launcher.py（通过 LAUNCHER_PATH 变量构造绝对路径，
+        # 避免 PyInstaller 把 spec 内相对路径叠加到 spec 文件所在目录）
+        self.assertIn("LAUNCHER_PATH", self.pyinstaller_spec)
+        self.assertIn("SPECPATH", self.pyinstaller_spec)
+        self.assertIn("launcher.py", self.pyinstaller_spec)
         # exe 名必须是 miku-analysis-server
         self.assertIn("miku-analysis-server", self.pyinstaller_spec)
         # 必须把 librosa_backend 显式列为 hiddenimport（命名空间包兜底）
@@ -251,6 +259,23 @@ class DesktopShellStaticTests(unittest.TestCase):
             self.assertIn(f"'{pkg}'", self.pyinstaller_spec)
         # 必须是 console 模式（stdin/stdout 通信需要 console）
         self.assertIn("console=True", self.pyinstaller_spec)
+
+    def test_pyinstaller_spec_excludes_unnecessary_heavy_deps(self) -> None:
+        # v0.6.1：spec 必须排除分析后端不需要的重型依赖，把体积从 ~780 MB 降到 ~288 MB
+        # torch / torchvision / onnxruntime 是 librosa 可选依赖（推理后端），分析后端不使用
+        for excluded in ("torch", "torchvision", "onnxruntime", "matplotlib", "PIL", "pandas"):
+            self.assertIn(f"'{excluded}'", self.pyinstaller_spec)
+        # msgpack 不能排除（numba 运行时需要做缓存序列化）
+        self.assertNotIn("'msgpack'", self.pyinstaller_spec)
+
+    def test_launcher_py_enforces_utf8_streams(self) -> None:
+        # v0.6.1：PyInstaller 打包后 Windows 默认 cp936 会让中文路径乱码，
+        # launcher.py 必须在启动时把 stdin/stdout/stderr 重新配置为 UTF-8。
+        self.assertIn("reconfigure(encoding=\"utf-8\"", self.launcher_py)
+        self.assertIn("surrogateescape", self.launcher_py)
+        # 必须覆盖三个流
+        for stream in ("sys.stdin", "sys.stdout", "sys.stderr"):
+            self.assertIn(stream, self.launcher_py)
 
     def test_preload_js_does_not_expose_arbitrary_ipc(self) -> None:
         # 渲染器只能调用白名单方法，不能直接 require 或访问 ipcRenderer

@@ -9,5 +9,6 @@ __pycache__/
 logs/pyinstaller-build.log
 dist/
 dist-v0.6.0/
+dist-v0.6.1/
 build/
 *.spec.bak

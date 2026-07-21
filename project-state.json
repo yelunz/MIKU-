@@ -2,9 +2,9 @@
   "schema_version": 1,
   "project_name": "Miku 歌姬解放计划",
   "working_title": true,
-  "phase": "v0.6.0-p5-packaged-ready-for-user-test",
+  "phase": "v0.6.1-pyinstaller-bundled-ready-for-user-test",
   "status": "ready-for-user-test",
-  "last_updated": "2026-07-21T15:30:00+08:00",
+  "last_updated": "2026-07-21T22:55:00+08:00",
   "remote": "https://github.com/yelunz/MIKU-.git",
   "git_branch": "main",
   "remote_sync_status": "synced",
@@ -153,11 +153,11 @@
         ]
       },
       "build_targets": {
-        "windows": "nsis-x64-v0.6.0-installer-generated-101mb-dist-v0.6.0-dir",
+        "windows": "nsis-x64-v0.6.1-installer-generated-190mb-with-pyinstaller-analysis-server",
         "macos": "not-yet-configured",
         "linux": "not-yet-configured"
       },
-      "status": "v0.6.0-nsis-installer-generated-ready-for-user-test"
+      "status": "v0.6.1-pyinstaller-bundled-ready-for-user-test"
     }
   ],
   "desktop_stack_validation": {
@@ -260,14 +260,19 @@
     "tools/miku_analysis/__init__.py",
     "tools/miku_analysis/librosa_backend.py",
     "tools/miku_analysis/README.md",
+    "tools/miku_analysis/launcher.py",
+    "tools/miku_analysis/pyinstaller.spec",
+    "tools/miku_analysis/test_pyinstaller_bundle.py",
     "tests/test_librosa_backend.py",
     "fixtures/basic-c-major-120-v1/librosa-analysis-v2.json",
     "prototype/web-workbench/error-recovery.js",
     "logs/2026-07-21_001-p4-breath-param-candidate-harmony.md",
-    "logs/2026-07-21_002-v0.6.0-nsis-packaging-success.md"
+    "logs/2026-07-21_002-v0.6.0-nsis-packaging-success.md",
+    "logs/2026-07-21_003-pyinstaller-bundled-analysis-server-v0.6.1.md"
   ],
   "next_actions": [
-    "user-test-v0.6.0-nsis-installer-end-to-end-on-windows-install-and-run-all-p1-p5-features",
+    "user-test-v0.6.1-nsis-installer-end-to-end-on-windows-install-and-run-all-p1-p5-features-no-python-required",
+    "p1.3-step4-pyinstaller-bundling-COMPLETED-v0.6.1-miku-analysis-server-exe-bundled-into-electron-installer",
     "p4-real-browser-regression-on-breath-marks-param-curves-candidates-and-harmony-tracks",
     "p4-verify-0.3.0-project-import-auto-migrates-to-0.4.0-with-empty-p4-fields",
     "p4-connect-breath-marks-and-param-curves-to-engine-adapters-midi-ustx-synthv-vocaloid6",
@@ -280,7 +285,6 @@
     "vocaloid6-6.13.0-real-machine-verification-user-not-provided-vocaloid6-install-pending-adapter-code-complete-but-unverified",
     "p1.3-step2-basic-pitch-spike-install-basic-pitch-create-tools-miku-analysis-basic_pitch-backend-py-validate-on-separated-stem",
     "p1.3-step3-demucs-license-and-volume-spike-check-issue-327-evaluate-mdx-net-onnx-runtime-alternative",
-    "p1.3-step4-pyinstaller-bundling-if-step1-2-pass-upgrade-to-method-a-internal-pyinstaller-electron-ipc-launchanalysisprocess-true",
     "pinyin-table-further-expansion-from-545-to-full-unihan-coverage-if-needed",
     "run-p2-r1-real-browser-regression-on-syllable-splitting-reading-override-vocal-preview-0.2.0-migration-0.1.0-migration-undo-redo-and-syllable-lock-preservation",
     "run-p1.1-and-p1.2-r1-r2-r3-r4-real-browser-regression-on-undo-redo-lyric-drag-shared-edge-rest-zoom-auto-scroll-lock-stem-mixer-piano-roll-quantize-nondestructive-mix-and-project-roundtrip",
